@@ -11,20 +11,12 @@
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-Copy-Item .env.example .env
 ```
 
-Заполните .env:
-- GEMINI_API_KEY — ключ Google AI Studio.
-- GEMINI_MODEL — точный ID доступной текстовой Flash-модели.
-- TEAM_NAME — название команды.
-- ORGANIZER_API_URL — полная ссылка GET организаторов, включая параметры.
-  Не нужна при загрузке JSON с ПК.
-
-Запрошенный gemini-1.5-flash оставлен в примере настроек, но Google отключил
-его 24 сентября 2025 года. Сервер явно сообщает об этом; автоматической
-подмены модели нет. Выберите доступную модель в своём Google AI Studio.
-Не отправляйте ключ в чат, JavaScript или Git.
+API-ключ и ID доступной модели Gemini вводятся прямо на сайте.
+Поле ключа изначально пустое, ввод скрыт. Ключ передаётся серверу
+только при запуске оценки и затем используется для запроса в Gemini.
+Ключ не записывается в JSON, экспорт или хранилище браузера.
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn server:app --host 127.0.0.1 --port 8000
@@ -35,7 +27,7 @@ Copy-Item .env.example .env
 
 ## Сценарий
 
-1. Выберите DEV/PROD и загрузите JSON с ПК или через GET.
+1. Введите API-ключ и ID модели. Выберите DEV/PROD и загрузите JSON с ПК или через GET.
 2. При необходимости отредактируйте чек-лист.
 3. Нажмите «Оценить все». Оценка последовательная, запросы асинхронные.
 4. Прогресс обновляется через GET /api/dialogues. Готовые оценки доступны сразу.
@@ -58,18 +50,18 @@ Copy-Item .env.example .env
 ## API
 
 - POST /api/load-data
-  JSON {"group_id":"DEV"} — GET по ORGANIZER_API_URL с нужным group_id.
+  JSON {"group_id":"DEV"} — GET по ORGANIZER_API_URL (константа в server.py) с нужным group_id.
   JSON {"group_id":"DEV","dataset":{...}} — импорт объекта.
   multipart/form-data: file, group_id — импорт файла.
   Поддерживает data.records, records и массив диалогов.
 - GET /api/dialogues — диалоги, результаты, прогресс и объект экспорта.
-- POST /api/evaluate — оценка всего набора, возвращает итоговый JSON.
+- POST /api/evaluate с JSON {"api_key":"...","model":"..."} — оценка всего набора, возвращает итоговый JSON.
   Это и есть пакетная оценка; отдельного /api/evaluate-batch нет.
 - POST /api/checklist
   {} — прочитать; {"checklist":[...]} — сохранить.
 
 GET / — отдаёт интерфейс, не дополнительный API-маршрут.
-Ключ Gemini находится только на сервере. API вызывается через httpx,
+Ключ вводится пользователем на сайте и используется сервером только для текущей оценки. API вызывается через httpx,
 поэтому дополнительный SDK не требуется.
 
 ## Git
@@ -83,7 +75,7 @@ git commit -m "Add minimal DataDoom app"
 ```
 
 Добавьте адрес своего репозитория как origin, затем git push -u origin main.
-data/ и .env исключены, results/ включён в Git.
+data/ исключён, results/ включён в Git.
 
 ## Ограничения этой минимальной версии
 

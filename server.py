@@ -3,22 +3,20 @@ import asyncio
 import copy
 import json
 import math
-import os
 import re
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 
 ROOT = Path(__file__).resolve().parent
-load_dotenv(ROOT / ".env")
 DATA = ROOT / "data"
 DATA.mkdir(exist_ok=True)
-MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-TEAM = os.getenv("TEAM_NAME", "DataDoom")
+MODEL = ""
+ORGANIZER_API_URL = ""
+TEAM = "DataDoom"
 app = FastAPI(title="DataDoom", docs_url=None, redoc_url=None, openapi_url=None)
 lock = asyncio.Lock()
 
@@ -264,9 +262,9 @@ async def load_data(request: Request):
                     payload = body["dataset"]
                 else:
                     # Only the organizer URL configured on the server; no arbitrary proxy.
-                    url = os.getenv("ORGANIZER_API_URL", "")
+                    url = ORGANIZER_API_URL
                     if not url.startswith("https://"):
-                        raise ValueError("Укажите ORGANIZER_API_URL в .env или загрузите файл.")
+                        raise ValueError("Укажите ORGANIZER_API_URL в server.py или загрузите файл.")
                     u = urlsplit(url)
                     params = dict(parse_qsl(u.query))
                     params["group_id"] = group
@@ -297,7 +295,6 @@ async def dialogues():
     return {"group_id": state["group"], "records": state["records"],
             "results": state["results"], "progress": progress,
             "export": export_payload(), "model": MODEL,
-            "key_configured": bool(os.getenv("GEMINI_API_KEY")),
             "run_checklist": state["run_checklist"]}
 
 
@@ -320,21 +317,29 @@ async def configure(request: Request):
 
 
 @app.post("/api/evaluate")
-async def evaluate():
+async def evaluate(request: Request):
     if lock.locked():
         raise HTTPException(409, "Оценка или загрузка уже выполняется.")
     if not state["records"]:
         raise HTTPException(400, "Сначала загрузите диалоги.")
-    key = os.getenv("GEMINI_API_KEY", "")
-    if not key:
-        raise HTTPException(400, "Укажите GEMINI_API_KEY в .env и перезапустите сервер.")
-    if MODEL.startswith("gemini-1.5-"):
-        raise HTTPException(400, "Gemini 1.5 отключён Google. Замените GEMINI_MODEL в .env на доступную Flash-модель и перезапустите сервер.")
-    if not re.fullmatch(r"[a-zA-Z0-9._-]+", MODEL):
-        raise HTTPException(400, "Некорректный GEMINI_MODEL.")
+    try:
+        body = await request.json()
+    except ValueError:
+        raise HTTPException(400, "Ожидается JSON-объект.")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Ожидается JSON-объект.")
+    key = body.pop("api_key", "")
+    model = body.get("model", "")
+    if not isinstance(key, str) or not key.strip():
+        raise HTTPException(400, "Введите API-ключ Gemini на сайте.")
+    key = key.strip()
+    if not isinstance(model, str) or not re.fullmatch(r"[a-zA-Z0-9._-]+", model):
+        raise HTTPException(400, "Укажите ID модели Gemini на сайте.")
+    if model.startswith("gemini-1.5-"):
+        raise HTTPException(400, "Gemini 1.5 отключён. Укажите доступную модель на сайте.")
     async with lock:
         rules = copy.deepcopy(validate_checklist(checklist))
-        state.update(results={}, run_checklist=rules, model=MODEL, team_name=TEAM)
+        state.update(results={}, run_checklist=rules, model=model, team_name=TEAM)
         progress.update(running=True, done=0, total=len(state["records"]), errors=0)
         # Clear previous export immediately, including on interrupted reruns.
         save(ROOT / "results" / state["group"].lower() / "results.json", export_payload())
@@ -348,7 +353,7 @@ async def evaluate():
                                   "criteria": [], "score": None, "error": fatal}
                     else:
                         try:
-                            result = await evaluate_one(client, record, rules, MODEL, key)
+                            result = await evaluate_one(client, record, rules, model, key)
                         except HTTPException as e:
                             fatal = e.detail
                             result = {"conversation_id": record["conversation_id"], "status": "error",
