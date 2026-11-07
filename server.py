@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 DATA.mkdir(exist_ok=True)
-MODEL = ""
+MODEL = "gemini-2.0-flash"
 ORGANIZER_API_URL = ""
 TEAM = "DataDoom"
 app = FastAPI(title="DataDoom", docs_url=None, redoc_url=None, openapi_url=None)
@@ -329,14 +329,10 @@ async def evaluate(request: Request):
     if not isinstance(body, dict):
         raise HTTPException(400, "Ожидается JSON-объект.")
     key = body.pop("api_key", "")
-    model = body.get("model", "")
+    model = MODEL
     if not isinstance(key, str) or not key.strip():
         raise HTTPException(400, "Введите API-ключ Gemini на сайте.")
     key = key.strip()
-    if not isinstance(model, str) or not re.fullmatch(r"[a-zA-Z0-9._-]+", model):
-        raise HTTPException(400, "Укажите ID модели Gemini на сайте.")
-    if model.startswith("gemini-1.5-"):
-        raise HTTPException(400, "Gemini 1.5 отключён. Укажите доступную модель на сайте.")
     async with lock:
         rules = copy.deepcopy(validate_checklist(checklist))
         state.update(results={}, run_checklist=rules, model=model, team_name=TEAM)
