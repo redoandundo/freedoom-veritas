@@ -12,6 +12,8 @@
 <div id="message" role="status" aria-live="polite"></div>
 <section id="analytics">
 <div class="toolbar">
+<label>API-ключ Gemini <input id="apiKey" type="password" value="" autocomplete="off" spellcheck="false" placeholder="Введите API-ключ"></label>
+<label>Модель <input id="model" type="text" value="" placeholder="ID модели Gemini" autocomplete="off"></label>
 <label>Набор <select id="group"><option>DEV</option><option>PROD</option></select></label>
 <input type="file" id="file" accept=".json,application/json" aria-label="JSON-файл">
 <button id="upload">Загрузить файл</button><button id="get">Получить через GET</button>
@@ -55,7 +57,7 @@ async function refresh(){
  const p=snapshot.progress,done=Object.keys(snapshot.results).length;
  $("progress").max=Math.max(snapshot.records.length,1);$("progress").value=done;
  $("progressText").textContent=`Обработано ${done}/${snapshot.records.length} · ошибок ${Object.values(snapshot.results).filter(r=>r.status==="error").length}${p.running?" · выполняется":""}`;
- $("connection").textContent=`Модель: ${snapshot.model} · ключ ${snapshot.key_configured?"настроен":"не настроен"} · набор ${snapshot.group_id}`;
+ $("connection").textContent=`Набор ${snapshot.group_id}`;
  $("list").replaceChildren();
  for(const r of snapshot.records){
   const result=snapshot.results[r.conversation_id];
@@ -139,8 +141,11 @@ async function load(file){
 }
 $("upload").onclick=()=>load(true);$("get").onclick=()=>load(false);
 $("evaluate").onclick=async()=>{
+ const key=$("apiKey").value.trim(),model=$("model").value.trim();
+ if(!key){message("Введите API-ключ Gemini.",true);return}
+ if(!model){message("Укажите ID модели Gemini.",true);return}
  busy=true;controls();startPoll();message("Оценка запущена. Оставьте сервер работающим.");
- try{const result=await post("/api/evaluate",{});const errors=result.results.filter(r=>r.status==="error").length;message(`Готово: ${result.results.length} диалогов, ошибок: ${errors}.`,errors>0)}
+ try{const result=await post("/api/evaluate",{api_key:key,model});const errors=result.results.filter(r=>r.status==="error").length;message(`Готово: ${result.results.length} диалогов, ошибок: ${errors}.`,errors>0)}
  catch(e){message(e.message,true)}
  finally{busy=false;await refresh().catch(e=>message(e.message,true));controls()}
 };
