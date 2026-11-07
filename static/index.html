@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DataDoom — оценка диалогов</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#21312e;background:#f3f6f4}
+*{box-sizing:border-box}body{margin:0}header{background:#173e35;color:white;padding:20px 28px;display:flex;align-items:center;gap:24px}h1{margin:0;font-size:24px}header small{color:#b5d6c8}button,input,textarea,select{font:inherit;border:1px solid #cbd8d0;border-radius:7px;padding:9px}button{cursor:pointer;background:white;color:#21312e}button:hover{background:#e7f2eb}button:disabled{opacity:.5;cursor:wait}.primary{background:#18734d;color:white}.primary:hover{background:#105f3e}nav{margin-left:auto;display:flex;gap:8px}main{padding:20px}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:white;padding:14px;border-radius:10px}.toolbar input[type=file]{max-width:270px}.status{padding:12px 0;display:flex;gap:15px;align-items:center}progress{width:200px;accent-color:#18734d}.layout{display:grid;grid-template-columns:230px minmax(280px,1fr) minmax(280px,390px);gap:16px}.panel{background:white;border:1px solid #e0e7e2;border-radius:10px;padding:15px;max-height:70vh;overflow:auto}h2{font-size:18px;margin:0 0 14px}h3{font-size:15px}.dialog{display:block;width:100%;text-align:left;margin-bottom:8px}.selected{border:2px solid #18734d}.turn{padding:12px;background:#f3f6f4;margin:10px 0;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}.turn.operator{background:#edf7f0}.turn:target,.highlight{outline:2px solid #d7ad35}.meta{display:block;font-size:12px;color:#65766d;margin-bottom:5px}.criterion{border-bottom:1px solid #e2e9e4;padding:10px 0}.criterion p{font-size:14px;line-height:1.5}.good{color:#15704a}.bad{color:#ae4035}.muted{color:#65766d}.error{color:#a92b2b}#message{white-space:pre-wrap;padding:8px 0;min-height:28px}.editor{max-width:950px;margin:auto}.edit-card{background:white;padding:18px;border-radius:10px;margin-bottom:12px;display:grid;grid-template-columns:1fr 2fr 100px;gap:12px}.edit-card label{display:flex;flex-direction:column;gap:5px;font-size:13px}.wide{grid-column:1/-1}textarea{resize:vertical;min-height:95px}a{color:#126e50}audio{width:100%}[hidden]{display:none!important}@media(max-width:950px){.layout{grid-template-columns:1fr}.panel{max-height:55vh}header{flex-wrap:wrap}.edit-card{grid-template-columns:1fr}nav{margin-left:0}}
+</style>
+<header><h1>DataDoom</h1><small>Контроль качества диалогов</small><nav><button id="analyticsTab">Диалоги</button><button id="settingsTab">Чек-лист</button></nav></header>
+<main>
+<div id="message" role="status" aria-live="polite"></div>
+<section id="analytics">
+<div class="toolbar">
+<label>Набор <select id="group"><option>DEV</option><option>PROD</option></select></label>
+<input type="file" id="file" accept=".json,application/json" aria-label="JSON-файл">
+<button id="upload">Загрузить файл</button><button id="get">Получить через GET</button>
+<button id="evaluate" class="primary">Оценить все</button><button id="download" disabled>Скачать results.json</button>
+</div>
+<div class="status"><progress id="progress" value="0" max="1"></progress><span id="progressText">Загрузите набор</span></div>
+<p id="connection" class="muted"></p>
+<div class="layout">
+<aside class="panel"><h2>Диалоги</h2><div id="list">Набор ещё не загружен</div></aside>
+<section class="panel" id="chat"><h2>Транскрипт</h2><p class="muted">Выберите диалог слева.</p></section>
+<section class="panel" id="scores"><h2>Оценка</h2><p class="muted">Результаты появятся после обработки.</p></section>
+</div>
+</section>
+<section id="settings" hidden class="editor">
+<h2>Настройка чек-листа</h2><p class="muted">После сохранения запустите оценку заново. Старый результат сам не меняется.</p>
+<div id="rules"></div><button id="add">Добавить критерий</button> <button id="save" class="primary">Сохранить чек-лист</button>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let snapshot=null,selected=null,rules=[],poll=null,busy=false,lastDetail="";
+function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n}
+function message(text,error=false){$("message").textContent=text;$("message").className=error?"error":""}
+async function api(path,options={}){
+ const r=await fetch(path,options);let body;
+ try{body=await r.json()}catch{throw Error("Сервер вернул некорректный ответ. Обновите список для проверки прогресса.")}
+ if(!r.ok)throw Error(typeof body.detail==="string"?body.detail:JSON.stringify(body.detail));
+ return body;
+}
+function post(path,body){return api(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})}
+function show(tab){$("analytics").hidden=tab!=="analytics";$("settings").hidden=tab!=="settings"}
+function controls(){
+ const running=busy||snapshot?.progress.running;
+ for(const id of ["upload","get","evaluate","save","add"])$(id).disabled=running;
+ const complete=snapshot&&snapshot.records.length>0&&Object.keys(snapshot.results).length===snapshot.records.length&&!running;
+ $("download").disabled=!complete;
+}
+async function refresh(){
+ snapshot=await api("/api/dialogues");
+ if(!snapshot.records.some(r=>r.conversation_id===selected))selected=snapshot.records[0]?.conversation_id;
+ const p=snapshot.progress,done=Object.keys(snapshot.results).length;
+ $("progress").max=Math.max(snapshot.records.length,1);$("progress").value=done;
+ $("progressText").textContent=`Обработано ${done}/${snapshot.records.length} · ошибок ${Object.values(snapshot.results).filter(r=>r.status==="error").length}${p.running?" · выполняется":""}`;
+ $("connection").textContent=`Модель: ${snapshot.model} · ключ ${snapshot.key_configured?"настроен":"не настроен"} · набор ${snapshot.group_id}`;
+ $("list").replaceChildren();
+ for(const r of snapshot.records){
+  const result=snapshot.results[r.conversation_id];
+  const score=result?.status==="ok"?(result.score.final_score??"N/A"):result?.status==="error"?"Ошибка":"—";
+  const b=el("button",r.conversation_id+" · "+score,"dialog"+(selected===r.conversation_id?" selected":""));
+  b.onclick=()=>{selected=r.conversation_id;lastDetail="";renderDetails();refresh().catch(e=>message(e.message,true))};
+  $("list").append(b);
+ }
+ const detail=JSON.stringify([selected,snapshot.results[selected],snapshot.records.find(r=>r.conversation_id===selected)]);
+ if(detail!==lastDetail){lastDetail=detail;renderDetails()}
+ controls();
+ if(p.running&&!poll)startPoll();
+ if(!p.running&&!busy&&poll){clearInterval(poll);poll=null}
+}
+function jump(n){
+ show("analytics");const t=$("turn-"+n);if(t){t.scrollIntoView({behavior:"smooth",block:"center"});t.classList.add("highlight");setTimeout(()=>t.classList.remove("highlight"),1800)}
+}
+function renderDetails(){
+ const record=snapshot?.records.find(r=>r.conversation_id===selected);
+ $("chat").replaceChildren(el("h2",record?.conversation_id||"Транскрипт"));
+ $("scores").replaceChildren(el("h2","Оценка"));
+ if(!record)return;
+ if(record.audio_url){
+  try{const u=new URL(record.audio_url);if(["https:","http:"].includes(u.protocol)){
+   const a=el("a","Открыть запись звонка ↗");a.href=u.href;a.target="_blank";a.rel="noopener noreferrer";$("chat").append(a);
+  }}catch{}
+ }
+ record.transcript.forEach((t,i)=>{
+  const div=el("div",undefined,"turn"+(t.speaker==="operator"?" operator":""));div.id="turn-"+(i+1);
+  div.append(el("span",`[${i+1}] ${t.timestamp} · ${t.speaker}`,"meta"),el("span",t.text));$("chat").append(div)
+ });
+ const result=snapshot.results[selected];
+ if(!result){$("scores").append(el("p","Диалог ещё не оценён.","muted"));return}
+ if(result.status==="error"){$("scores").append(el("p",result.error,"error"));return}
+ $("scores").append(el("h2",`Итог: ${result.score.final_score??"N/A"} / 100`));
+ if(result.score.critical_flag)$("scores").append(el("p","Выявлено грубое нарушение","bad"));
+ const names=Object.fromEntries(snapshot.run_checklist.map(c=>[c.id,c.name]));
+ for(const c of result.criteria){
+  const div=el("div",undefined,"criterion");
+  const value=c.value===null?"N/A":c.value===true?"Да":c.value===false?"Нет":c.value;
+  div.append(el("h3",`${names[c.criterion_id]||c.criterion_id}: ${value}`),el("p",c.rationale));
+  for(const n of c.evidence_turns){const b=el("button","Реплика "+n);b.onclick=()=>jump(n);div.append(b)}
+  $("scores").append(div);
+ }
+}
+function renderRules(){
+ $("rules").replaceChildren();
+ rules.forEach((r,i)=>{
+  const card=el("div",undefined,"edit-card");
+  function field(label,key,wide=false){
+   const l=el("label",label,wide?"wide":""),input=el(key==="rule_text"?"textarea":"input");
+   input.value=key==="allowed_values"?JSON.stringify(r[key]):r[key];
+   if(key==="weight"){input.type="number";input.min=0;input.step="any"}
+   input.oninput=()=>{r[key]=key==="weight"?Number(input.value):input.value};l.append(input);card.append(l)
+  }
+  field("ID","id");field("Название","name");field("Вес","weight");
+  field("Допустимые значения JSON: [true,false,null] или [0,5,10,15,20,null]","allowed_values",true);
+  field("Правило оценки и условия N/A","rule_text",true);
+  const label=el("label","Назначение"),select=el("select");
+  for(const [v,t]of [["score","Баллы"],["flag","Флаг нарушения (вес 0)"]]){const o=el("option",t);o.value=v;select.append(o)}
+  select.value=r.kind||"score";select.onchange=()=>{r.kind=select.value};label.append(select);card.append(label);
+  const del=el("button","Удалить");del.onclick=()=>{rules.splice(i,1);renderRules()};card.append(del);$("rules").append(card)
+ })
+}
+function startPoll(){if(!poll)poll=setInterval(()=>refresh().catch(e=>message(e.message,true)),1500)}
+$("analyticsTab").onclick=()=>show("analytics");
+$("settingsTab").onclick=()=>show("settings");
+$("add").onclick=()=>{rules.push({id:"criterion_"+Date.now(),name:"Новый критерий",weight:5,allowed_values:[true,false],rule_text:"",kind:"score"});renderRules()};
+$("save").onclick=async()=>{try{
+ const clean=rules.map(r=>({...r,allowed_values:typeof r.allowed_values==="string"?JSON.parse(r.allowed_values):r.allowed_values}));
+ rules=(await post("/api/checklist",{checklist:clean})).checklist;renderRules();message("Чек-лист сохранён. Новые правила применятся при следующей оценке.")
+}catch(e){message(e.message,true)}};
+async function load(file){
+ busy=true;controls();message("Загрузка…");
+ try{
+  let result;
+  if(file){const f=$("file").files[0];if(!f)throw Error("Выберите JSON-файл.");const form=new FormData();form.append("file",f);form.append("group_id",$("group").value);result=await api("/api/load-data",{method:"POST",body:form})}
+  else result=await post("/api/load-data",{group_id:$("group").value});
+  selected=null;lastDetail="";await refresh();message("Загружено диалогов: "+result.count);
+ }catch(e){message(e.message,true)}finally{busy=false;controls()}
+}
+$("upload").onclick=()=>load(true);$("get").onclick=()=>load(false);
+$("evaluate").onclick=async()=>{
+ busy=true;controls();startPoll();message("Оценка запущена. Оставьте сервер работающим.");
+ try{const result=await post("/api/evaluate",{});const errors=result.results.filter(r=>r.status==="error").length;message(`Готово: ${result.results.length} диалогов, ошибок: ${errors}.`,errors>0)}
+ catch(e){message(e.message,true)}
+ finally{busy=false;await refresh().catch(e=>message(e.message,true));controls()}
+};
+$("download").onclick=()=>{
+ const blob=new Blob([JSON.stringify(snapshot.export,null,2)],{type:"application/json;charset=utf-8"});
+ const url=URL.createObjectURL(blob),a=el("a");a.href=url;a.download="results.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ message("Сохраните файл в results/"+snapshot.group_id.toLowerCase()+"/results.json и сделайте commit + push.");
+};
+(async()=>{try{rules=(await post("/api/checklist",{})).checklist;renderRules();await refresh()}catch(e){message(e.message,true)}})();
+</script>
+</html>
