@@ -1,4 +1,4 @@
-"""DataDoom: one process, four API routes, memory + local JSON."""
+"""FreeDoom: background evaluation, appeals, memory + local JSON."""
 import asyncio
 import copy
 import json
@@ -8,7 +8,9 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from datetime import datetime, timezone
+from uuid import uuid4
 from fastapi.responses import FileResponse
 
 ROOT = Path(__file__).resolve().parent
@@ -16,8 +18,8 @@ DATA = ROOT / "data"
 DATA.mkdir(exist_ok=True)
 MODEL = "gemini-2.0-flash"
 ORGANIZER_API_URL = ""
-TEAM = "DataDoom"
-app = FastAPI(title="DataDoom", docs_url=None, redoc_url=None, openapi_url=None)
+TEAM = "FreeDoom"
+app = FastAPI(title="FreeDoom", docs_url=None, redoc_url=None, openapi_url=None)
 lock = asyncio.Lock()
 
 DEFAULTS = [
@@ -62,6 +64,9 @@ state = read(DATA / "state.json", {
     "group": "DEV", "records": [], "results": {}, "run_checklist": [],
     "model": MODEL, "team_name": TEAM,
 })
+state["team_name"] = TEAM
+state.setdefault("appeals", [])
+state.setdefault("archives", [])
 checklist = read(DATA / "checklist.json", DEFAULT_CHECKLIST)
 progress = {"running": False, "done": 0, "total": 0, "errors": 0}
 
@@ -181,10 +186,24 @@ def calculate_score(criteria, rules):
             "critical_flag": critical}
 
 
+def export_result(result):
+    # Internal appeal audit stays in state; submission retains the original schema.
+    exported = {k: copy.deepcopy(result[k]) for k in ("conversation_id", "criteria", "score", "error") if k in result}
+    exported["status"] = "error" if result["status"] == "error" else "ok"
+    return exported
+
+
+def archive_run():
+    if state["results"] or state["appeals"]:
+        state["archives"].append(copy.deepcopy({k: state[k] for k in
+            ("group", "records", "results", "run_checklist", "appeals", "model")}))
+    state["appeals"] = []
+
+
 def export_payload():
     return {"schema_version": "1.0", "team_name": state["team_name"],
             "model": {"mode": "external_api", "name": state["model"]},
-            "results": [state["results"][r["conversation_id"]] for r in state["records"]
+            "results": [export_result(state["results"][r["conversation_id"]]) for r in state["records"]
                         if r["conversation_id"] in state["results"]]}
 
 
@@ -244,7 +263,7 @@ async def index():
 
 @app.post("/api/load-data")
 async def load_data(request: Request):
-    if lock.locked():
+    if lock.locked() or progress["running"]:
         raise HTTPException(409, "Дождитесь завершения оценки или загрузки.")
     async with lock:
         try:
@@ -280,6 +299,7 @@ async def load_data(request: Request):
             raise HTTPException(400, "Не удалось загрузить набор. Проверьте формат JSON, ID, group_id и ORGANIZER_API_URL.")
         save(DATA / f"{group.lower()}_source.json", payload)
         # A newly loaded set has no scores: never reuse scores from another source.
+        archive_run()
         state.update(group=group, records=records, results={}, run_checklist=[],
                      model=MODEL, team_name=TEAM)
         persist()
@@ -295,7 +315,7 @@ async def dialogues():
     return {"group_id": state["group"], "records": state["records"],
             "results": state["results"], "progress": progress,
             "export": export_payload(), "model": MODEL,
-            "run_checklist": state["run_checklist"]}
+            "run_checklist": state["run_checklist"], "appeals": state["appeals"]}
 
 
 @app.post("/api/checklist")
@@ -305,7 +325,7 @@ async def configure(request: Request):
     if not isinstance(body, dict):
         raise HTTPException(400, "Ожидается JSON-объект.")
     if "checklist" in body:
-        if lock.locked():
+        if lock.locked() or progress["running"]:
             raise HTTPException(409, "Дождитесь завершения оценки или загрузки.")
         try:
             new = validate_checklist(body["checklist"])
@@ -316,48 +336,139 @@ async def configure(request: Request):
     return {"checklist": checklist}
 
 
+@app.post("/api/evaluate-batch")
 @app.post("/api/evaluate")
-async def evaluate(request: Request):
-    if lock.locked():
-        raise HTTPException(409, "Оценка или загрузка уже выполняется.")
-    if not state["records"]:
-        raise HTTPException(400, "Сначала загрузите диалоги.")
+async def evaluate(request: Request, background_tasks: BackgroundTasks):
+    body = await json_body(request)
+    key = body.get("api_key", "")
+    if not isinstance(key, str) or not key.strip():
+        raise HTTPException(400, "Введите API-ключ Gemini на сайте.")
+    async with lock:
+        if progress["running"]:
+            raise HTTPException(409, "Оценка уже выполняется.")
+        if not state["records"]:
+            raise HTTPException(400, "Сначала загрузите диалоги.")
+        rules = copy.deepcopy(validate_checklist(checklist))
+        archive_run()
+        state.update(results={}, run_checklist=rules, model=MODEL, team_name=TEAM)
+        progress.update(running=True, done=0, total=len(state["records"]), errors=0, error=None)
+        try:
+            save(ROOT / "results" / state["group"].lower() / "results.json", export_payload())
+            persist()
+        except Exception:
+            progress["running"] = False
+            raise
+        background_tasks.add_task(evaluate_background, key.strip(), rules, copy.deepcopy(state["records"]))
+    return {"status": "started"}
+
+
+async def evaluate_background(key, rules, records):
+    fatal = None
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            for record in records:
+                try:
+                    if fatal:
+                        raise HTTPException(502, fatal)
+                    result = await evaluate_one(client, record, rules, MODEL, key)
+                except HTTPException as e:
+                    fatal = str(e.detail)
+                    result = {"conversation_id": record["conversation_id"], "status": "error",
+                              "criteria": [], "score": None, "error": fatal}
+                except Exception:
+                    result = {"conversation_id": record["conversation_id"], "status": "error",
+                              "criteria": [], "score": None, "error": "Ошибка обработки диалога."}
+                if result["status"] == "ok":
+                    result["original_ai"] = copy.deepcopy({"criteria": result["criteria"], "score": result["score"]})
+                state["results"][record["conversation_id"]] = result
+                progress["done"] += 1
+                progress["errors"] += int(result["status"] == "error")
+                persist()
+    except Exception:
+        progress["error"] = "Обработка прервана. Сохранены готовые результаты. Запустите оценку повторно."
+    finally:
+        key = None
+        progress["running"] = False
+        try:
+            persist()
+        except Exception:
+            progress["error"] = "Не удалось сохранить результаты на диск."
+
+
+async def json_body(request):
     try:
         body = await request.json()
     except ValueError:
         raise HTTPException(400, "Ожидается JSON-объект.")
     if not isinstance(body, dict):
         raise HTTPException(400, "Ожидается JSON-объект.")
-    key = body.pop("api_key", "")
-    model = MODEL
-    if not isinstance(key, str) or not key.strip():
-        raise HTTPException(400, "Введите API-ключ Gemini на сайте.")
-    key = key.strip()
+    return body
+
+
+def appeal_target(body):
+    cid, criterion_id = body.get("conversation_id"), body.get("criterion_id")
+    if not isinstance(cid, str) or not isinstance(criterion_id, str):
+        raise HTTPException(400, "Укажите conversation_id и criterion_id.")
+    result = state["results"].get(cid)
+    if not result or result["status"] == "error":
+        raise HTTPException(404, "Готовая оценка диалога не найдена.")
+    criterion = next((c for c in result["criteria"] if c["criterion_id"] == criterion_id), None)
+    rule = next((c for c in state["run_checklist"] if c["id"] == criterion_id), None)
+    if criterion is None or rule is None:
+        raise HTTPException(404, "Критерий не найден.")
+    return cid, criterion_id, result, criterion, rule
+
+
+def required_text(body, name):
+    value = body.get(name)
+    if not isinstance(value, str) or not value.strip() or len(value) > 10000:
+        raise HTTPException(400, f"Заполните {name} (до 10000 символов).")
+    return value.strip()
+
+
+@app.post("/api/appeal")
+async def appeal(request: Request):
+    body = await json_body(request)
     async with lock:
-        rules = copy.deepcopy(validate_checklist(checklist))
-        state.update(results={}, run_checklist=rules, model=model, team_name=TEAM)
-        progress.update(running=True, done=0, total=len(state["records"]), errors=0)
-        # Clear previous export immediately, including on interrupted reruns.
-        save(ROOT / "results" / state["group"].lower() / "results.json", export_payload())
+        if progress["running"]:
+            raise HTTPException(409, "Дождитесь завершения оценки.")
+        cid, criterion_id, result, criterion, rule = appeal_target(body)
+        comment = required_text(body, "comment")
+        if any(a["conversation_id"] == cid and a["criterion_id"] == criterion_id and a["status"] == "appeal_pending" for a in state["appeals"]):
+            raise HTTPException(409, "Апелляция уже ожидает решения.")
+        result.setdefault("original_ai", copy.deepcopy({"criteria": result["criteria"], "score": result["score"]}))
+        original = next(c for c in result["original_ai"]["criteria"] if c["criterion_id"] == criterion_id)
+        item = {"id": uuid4().hex, "conversation_id": cid, "criterion_id": criterion_id,
+                "comment": comment, "status": "appeal_pending", "submitted_by": "Оператор",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "evidence_turns": copy.deepcopy(criterion["evidence_turns"]),
+                "original_ai_value": original["value"], "original_ai_score": copy.deepcopy(result["original_ai"]["score"]),
+                "previous_value": criterion["value"], "previous_score": copy.deepcopy(result["score"])}
+        state["appeals"].append(item)
+        result["status"] = "appeal_pending"
         persist()
-        fatal = None
-        try:
-            async with httpx.AsyncClient(timeout=90) as client:
-                for record in state["records"]:
-                    if fatal:
-                        result = {"conversation_id": record["conversation_id"], "status": "error",
-                                  "criteria": [], "score": None, "error": fatal}
-                    else:
-                        try:
-                            result = await evaluate_one(client, record, rules, model, key)
-                        except HTTPException as e:
-                            fatal = e.detail
-                            result = {"conversation_id": record["conversation_id"], "status": "error",
-                                      "criteria": [], "score": None, "error": fatal}
-                    state["results"][record["conversation_id"]] = result
-                    progress["done"] += 1
-                    progress["errors"] += int(result["status"] == "error")
-                    persist()
-        finally:
-            progress["running"] = False
-        return export_payload()
+        return item
+
+
+@app.post("/api/appeal/resolve")
+async def resolve_appeal(request: Request):
+    body = await json_body(request)
+    async with lock:
+        if progress["running"]:
+            raise HTTPException(409, "Дождитесь завершения оценки.")
+        cid, criterion_id, result, criterion, rule = appeal_target(body)
+        reason = required_text(body, "reason")
+        if "new_value" not in body or not any(same(body["new_value"], v) for v in rule["allowed_values"]):
+            raise HTTPException(400, "Недопустимая оценка для этого критерия.")
+        item = next((a for a in state["appeals"] if a["conversation_id"] == cid and a["criterion_id"] == criterion_id and a["status"] == "appeal_pending"), None)
+        if item is None:
+            raise HTTPException(409, "Нет ожидающей апелляции.")
+        criterion["value"] = body["new_value"]
+        criterion["rationale"] = reason
+        result["score"] = calculate_score(result["criteria"], state["run_checklist"])
+        item.update(status="reviewed", new_value=body["new_value"], reason=reason,
+                    reviewed_by="Супервизор", resolved_at=datetime.now(timezone.utc).isoformat(),
+                    final_score=copy.deepcopy(result["score"]))
+        result["status"] = "appeal_pending" if any(a["conversation_id"] == cid and a["status"] == "appeal_pending" for a in state["appeals"]) else "ok"
+        persist()
+        return {"appeal": item, "result": result}
