@@ -2,12 +2,14 @@
 <html lang="ru">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DataDoom — оценка диалогов</title>
+<title>FreeDoom — оценка диалогов</title>
 <style>
 :root{font-family:system-ui,sans-serif;color:#21312e;background:#f3f6f4}
 *{box-sizing:border-box}body{margin:0}header{background:#173e35;color:white;padding:20px 28px;display:flex;align-items:center;gap:24px}h1{margin:0;font-size:24px}header small{color:#b5d6c8}button,input,textarea,select{font:inherit;border:1px solid #cbd8d0;border-radius:7px;padding:9px}button{cursor:pointer;background:white;color:#21312e}button:hover{background:#e7f2eb}button:disabled{opacity:.5;cursor:wait}.primary{background:#18734d;color:white}.primary:hover{background:#105f3e}nav{margin-left:auto;display:flex;gap:8px}main{padding:20px}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:white;padding:14px;border-radius:10px}.toolbar input[type=file]{max-width:270px}.status{padding:12px 0;display:flex;gap:15px;align-items:center}progress{width:200px;accent-color:#18734d}.layout{display:grid;grid-template-columns:230px minmax(280px,1fr) minmax(280px,390px);gap:16px}.panel{background:white;border:1px solid #e0e7e2;border-radius:10px;padding:15px;max-height:70vh;overflow:auto}h2{font-size:18px;margin:0 0 14px}h3{font-size:15px}.dialog{display:block;width:100%;text-align:left;margin-bottom:8px}.selected{border:2px solid #18734d}.turn{padding:12px;background:#f3f6f4;margin:10px 0;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}.turn.operator{background:#edf7f0}.turn:target,.highlight{outline:2px solid #d7ad35}.meta{display:block;font-size:12px;color:#65766d;margin-bottom:5px}.criterion{border-bottom:1px solid #e2e9e4;padding:10px 0}.criterion p{font-size:14px;line-height:1.5}.good{color:#15704a}.bad{color:#ae4035}.muted{color:#65766d}.error{color:#a92b2b}#message{white-space:pre-wrap;padding:8px 0;min-height:28px}.editor{max-width:950px;margin:auto}.edit-card{background:white;padding:18px;border-radius:10px;margin-bottom:12px;display:grid;grid-template-columns:1fr 2fr 100px;gap:12px}.edit-card label{display:flex;flex-direction:column;gap:5px;font-size:13px}.wide{grid-column:1/-1}textarea{resize:vertical;min-height:95px}a{color:#126e50}audio{width:100%}[hidden]{display:none!important}@media(max-width:950px){.layout{grid-template-columns:1fr}.panel{max-height:55vh}header{flex-wrap:wrap}.edit-card{grid-template-columns:1fr}nav{margin-left:0}}
+
+:root{color:#e5e7eb;background:#111827}header{background:#111827;border-bottom:1px solid #334155}header small,.muted,.meta{color:#a8b5c7}.toolbar,.panel,.edit-card{background:#1b2535;border-color:#334155}button,input,textarea,select{background:#111827;color:#f3f4f6;border-color:#475569}button:hover{background:#253649}.primary,.primary:hover{background:#00A35B;color:white}.selected{border-color:#00A35B}.turn{background:#111827}.turn.operator{background:#14392f}.good,a{color:#52e09e}.bad,.error{color:#fda4af}.criterion{border-color:#334155}progress{accent-color:#00A35B}progress::-webkit-progress-value{background:#00A35B;transition:width .7s ease}.highlight{outline:2px solid #00A35B;box-shadow:0 0 20px #00a35b55}.badge{display:inline-block;border:1px solid #00A35B;color:#65edb1;border-radius:5px;padding:3px 7px;margin:3px;font-size:12px}.appeal-card{background:#1b2535;border:1px solid #475569;border-radius:10px;padding:18px;margin-bottom:14px}.appeal-card textarea,.criterion textarea{display:block;box-sizing:border-box;width:100%;margin:10px 0}.appeal-card blockquote{margin:10px 0;padding:12px;border-left:3px solid #00A35B;white-space:pre-wrap}.metrics{display:flex;gap:16px;flex-wrap:wrap;padding:12px 0}.metric{padding:12px 18px;background:#1b2535;border-radius:8px}.role{display:flex;align-items:center;gap:6px}button:disabled{cursor:not-allowed}nav{flex-wrap:wrap}.criterion button{margin:3px}
 </style>
-<header><h1>DataDoom</h1><small>Контроль качества диалогов</small><nav><button id="analyticsTab">Диалоги</button><button id="settingsTab">Чек-лист</button></nav></header>
+<header><h1>FreeDoom</h1><small>Контроль качества диалогов</small><span class="badge">RU</span><span class="badge">KZ</span><span class="badge">EN</span><label class="role">Роль <select id="role"><option value="operator">Оператор</option><option value="supervisor">Супервизор</option></select></label><nav><button id="appealsTab">Апелляции</button><button id="analyticsTab">Диалоги</button><button id="settingsTab">Чек-лист</button></nav></header>
 <main>
 <div id="message" role="status" aria-live="polite"></div>
 <section id="analytics">
@@ -20,12 +22,14 @@
 </div>
 <div class="status"><progress id="progress" value="0" max="1"></progress><span id="progressText">Загрузите набор</span></div>
 <p id="connection" class="muted"></p>
+<div id="metrics" class="metrics"></div>
 <div class="layout">
 <aside class="panel"><h2>Диалоги</h2><div id="list">Набор ещё не загружен</div></aside>
 <section class="panel" id="chat"><h2>Транскрипт</h2><p class="muted">Выберите диалог слева.</p></section>
 <section class="panel" id="scores"><h2>Оценка</h2><p class="muted">Результаты появятся после обработки.</p></section>
 </div>
 </section>
+<section id="appeals" hidden class="editor"><h2>Центр апелляций</h2><label>Статус <select id="appealFilter"><option value="all">Все</option><option value="appeal_pending">Ожидают решения</option><option value="reviewed">Рассмотрены</option></select></label><div id="appealList"></div></section>
 <section id="settings" hidden class="editor">
 <h2>Настройка чек-листа</h2><p class="muted">После сохранения запустите оценку заново. Старый результат сам не меняется.</p>
 <div id="rules"></div><button id="add">Добавить критерий</button> <button id="save" class="primary">Сохранить чек-лист</button>
@@ -33,7 +37,7 @@
 </main>
 <script>
 const $=id=>document.getElementById(id);
-let snapshot=null,selected=null,rules=[],poll=null,busy=false,lastDetail="";
+let snapshot=null,selected=null,rules=[],poll=null,busy=false,lastDetail="",lastAppeals="",refreshing=false;
 function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n}
 function message(text,error=false){$("message").textContent=text;$("message").className=error?"error":""}
 async function api(path,options={}){
@@ -43,7 +47,7 @@ async function api(path,options={}){
  return body;
 }
 function post(path,body){return api(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})}
-function show(tab){$("analytics").hidden=tab!=="analytics";$("settings").hidden=tab!=="settings"}
+function show(tab){for(const id of ["analytics","settings","appeals"])$(id).hidden=tab!==id}
 function controls(){
  const running=busy||snapshot?.progress.running;
  for(const id of ["upload","get","evaluate","save","add"])$(id).disabled=running;
@@ -51,37 +55,45 @@ function controls(){
  $("download").disabled=!complete;
 }
 async function refresh(){
- snapshot=await api("/api/dialogues");
+ if(refreshing)return;
+ refreshing=true;
+ const wasRunning=snapshot?.progress.running;
+ try{snapshot=await api("/api/dialogues");}finally{refreshing=false}
+ if(wasRunning&&!snapshot.progress.running)message(snapshot.progress.error||`Оценка завершена. Ошибок: ${snapshot.progress.errors}`,!!snapshot.progress.error);
+ if(snapshot.progress.error)message(snapshot.progress.error,true);
  if(!snapshot.records.some(r=>r.conversation_id===selected))selected=snapshot.records[0]?.conversation_id;
  const p=snapshot.progress,done=Object.keys(snapshot.results).length;
  $("progress").max=Math.max(snapshot.records.length,1);$("progress").value=done;
- $("progressText").textContent=`Обработано ${done}/${snapshot.records.length} · ошибок ${Object.values(snapshot.results).filter(r=>r.status==="error").length}${p.running?" · выполняется":""}`;
+ $("progressText").textContent=`Оценено ${done} / ${snapshot.records.length} · ошибок ${Object.values(snapshot.results).filter(r=>r.status==="error").length}${p.running?" · выполняется":""}`;
  $("connection").textContent=`Модель: ${snapshot.model} · набор ${snapshot.group_id}`;
  $("list").replaceChildren();
  for(const r of snapshot.records){
   const result=snapshot.results[r.conversation_id];
-  const score=result?.status==="ok"?(result.score.final_score??"N/A"):result?.status==="error"?"Ошибка":"—";
+  const score=result&&result.status!=="error"?(result.score.final_score??"N/A"):result?.status==="error"?"Ошибка":"—";
   const b=el("button",r.conversation_id+" · "+score,"dialog"+(selected===r.conversation_id?" selected":""));
   b.onclick=()=>{selected=r.conversation_id;lastDetail="";renderDetails();refresh().catch(e=>message(e.message,true))};
   $("list").append(b);
  }
- const detail=JSON.stringify([selected,snapshot.results[selected],snapshot.records.find(r=>r.conversation_id===selected)]);
+ const detail=JSON.stringify([selected,snapshot.results[selected],snapshot.records.find(r=>r.conversation_id===selected),snapshot.appeals,$("role").value]);
  if(detail!==lastDetail){lastDetail=detail;renderDetails()}
+ renderAppeals();renderMetrics();
  controls();
  if(p.running&&!poll)startPoll();
  if(!p.running&&!busy&&poll){clearInterval(poll);poll=null}
 }
 function jump(n){
- show("analytics");const t=$("turn-"+n);if(t){t.scrollIntoView({behavior:"smooth",block:"center"});t.classList.add("highlight");setTimeout(()=>t.classList.remove("highlight"),1800)}
+ show("analytics");const t=$("turn-"+n);if(t){t.scrollIntoView({behavior:"smooth",block:"center"});t.classList.add("highlight");const audio=$("callAudio"),record=snapshot.records.find(r=>r.conversation_id===selected);if(audio&&record){const parts=record.transcript[n-1].timestamp.split(":").map(Number);if(parts.length>=2&&parts.every(Number.isFinite)){const seconds=parts.reduce((a,v)=>a*60+v,0);if(Number.isFinite(audio.duration))audio.currentTime=Math.min(seconds,audio.duration)}}setTimeout(()=>t.classList.remove("highlight"),2000)}
 }
 function renderDetails(){
  const record=snapshot?.records.find(r=>r.conversation_id===selected);
  $("chat").replaceChildren(el("h2",record?.conversation_id||"Транскрипт"));
  $("scores").replaceChildren(el("h2","Оценка"));
  if(!record)return;
+ const lang=String(record.language||record.lang||"").toUpperCase().replace("KK","KZ");
+ if(["RU","KZ","EN"].includes(lang))$("chat").append(el("span",lang,"badge"));
  if(record.audio_url){
   try{const u=new URL(record.audio_url);if(["https:","http:"].includes(u.protocol)){
-   const a=el("a","Открыть запись звонка ↗");a.href=u.href;a.target="_blank";a.rel="noopener noreferrer";$("chat").append(a);
+   const a=el("a","Открыть запись звонка ↗");a.href=u.href;a.target="_blank";a.rel="noopener noreferrer";$("chat").append(a);const player=el("audio");player.id="callAudio";player.controls=true;player.preload="metadata";player.src=u.href;$("chat").append(player);
   }}catch{}
  }
  record.transcript.forEach((t,i)=>{
@@ -93,12 +105,24 @@ function renderDetails(){
  if(result.status==="error"){$("scores").append(el("p",result.error,"error"));return}
  $("scores").append(el("h2",`Итог: ${result.score.final_score??"N/A"} / 100`));
  if(result.score.critical_flag)$("scores").append(el("p","Выявлено грубое нарушение","bad"));
+ if(result.original_ai)$("scores").append(el("p",`Исходный итог ИИ: ${result.original_ai.score.final_score??"N/A"} · Финальный: ${result.score.final_score??"N/A"}`));
+ if(result.status==="appeal_pending")$("scores").append(el("span","Есть апелляция","badge"));
  const names=Object.fromEntries(snapshot.run_checklist.map(c=>[c.id,c.name]));
  for(const c of result.criteria){
   const div=el("div",undefined,"criterion");
   const value=c.value===null?"N/A":c.value===true?"Да":c.value===false?"Нет":c.value;
   div.append(el("h3",`${names[c.criterion_id]||c.criterion_id}: ${value}`),el("p",c.rationale));
   for(const n of c.evidence_turns){const b=el("button","Реплика "+n);b.onclick=()=>jump(n);div.append(b)}
+  const rule=snapshot.run_checklist.find(r=>r.id===c.criterion_id);
+  div.append(el("small",`Вес: ${rule?.weight??0}`));
+  const pending=(snapshot.appeals||[]).find(a=>a.conversation_id===selected&&a.criterion_id===c.criterion_id&&a.status==="appeal_pending");
+  if(pending){const b=el("button","Ожидает решения →");b.onclick=()=>show("appeals");div.append(b)}
+  else if($("role").value==="operator"){
+   const open=el("button","Оспорить");open.disabled=snapshot.progress.running;open.onclick=()=>{
+    open.disabled=true;const text=el("textarea");text.placeholder="Почему оценка неверна?";text.maxLength=10000;const send=el("button","Отправить апелляцию","primary");
+    send.onclick=async()=>{if(!text.value.trim()){message("Введите жалобу.",true);return}send.disabled=true;try{await post("/api/appeal",{conversation_id:record.conversation_id,criterion_id:c.criterion_id,comment:text.value});lastDetail="";await refresh();message("Апелляция отправлена.")}catch(e){message(e.message,true);send.disabled=false}};div.append(text,send);text.focus()
+   };div.append(open)
+  }
   $("scores").append(div);
  }
 }
@@ -142,16 +166,50 @@ $("upload").onclick=()=>load(true);$("get").onclick=()=>load(false);
 $("evaluate").onclick=async()=>{
  const key=$("apiKey").value.trim();
  if(!key){message("Введите API-ключ Gemini.",true);return}
- busy=true;controls();startPoll();message("Оценка запущена. Оставьте сервер работающим.");
- try{const result=await post("/api/evaluate",{api_key:key});const errors=result.results.filter(r=>r.status==="error").length;message(`Готово: ${result.results.length} диалогов, ошибок: ${errors}.`,errors>0)}
+ busy=true;controls();message("Запуск оценки…");
+ try{await post("/api/evaluate",{api_key:key});await refresh();startPoll();message("Оценка запущена в фоне.")}
  catch(e){message(e.message,true)}
- finally{busy=false;await refresh().catch(e=>message(e.message,true));controls()}
+ finally{busy=false;controls()}
 };
 $("download").onclick=()=>{
  const blob=new Blob([JSON.stringify(snapshot.export,null,2)],{type:"application/json;charset=utf-8"});
  const url=URL.createObjectURL(blob),a=el("a");a.href=url;a.download="results.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
  message("Сохраните файл в results/"+snapshot.group_id.toLowerCase()+"/results.json и сделайте commit + push.");
 };
+
+const displayValue=v=>v===null?"N/A":v===true?"Да":v===false?"Нет":String(v);
+function renderMetrics(){
+ const ok=Object.values(snapshot.results).filter(r=>r.status!=="error"&&r.score?.final_score!==null);
+ const avg=ok.length?(ok.reduce((sum,r)=>sum+r.score.final_score,0)/ok.length).toFixed(1):"—";
+ $("metrics").replaceChildren(el("div",`Средняя оценка: ${avg}`,"metric"),el("div",`Апелляций на рассмотрении: ${(snapshot.appeals||[]).filter(a=>a.status==="appeal_pending").length}`,"metric"));
+}
+function renderAppeals(){
+ const signature=JSON.stringify([snapshot.appeals,$("role").value,$("appealFilter").value,snapshot.progress.running]);
+ if(signature===lastAppeals)return;lastAppeals=signature;
+ $("appealList").replaceChildren();
+ const items=(snapshot.appeals||[]).filter(a=>$("appealFilter").value==="all"||a.status===$("appealFilter").value);
+ if(!items.length)$("appealList").append(el("p","Апелляций нет.","muted"));
+ for(const a of [...items].reverse()){
+  const card=el("article",undefined,"appeal-card"),rule=snapshot.run_checklist.find(r=>r.id===a.criterion_id),record=snapshot.records.find(r=>r.conversation_id===a.conversation_id);
+  card.append(el("h3",`${a.conversation_id} · ${rule?.name||a.criterion_id}`),el("span",a.status==="appeal_pending"?"Ожидает решения":"Рассмотрена","badge"),el("p",`${a.submitted_by} · ${new Date(a.created_at).toLocaleString()}`),el("p",a.comment),el("p",`Оценка ИИ: ${displayValue(a.original_ai_value)} · До апелляции: ${displayValue(a.previous_value)}`));
+  for(const n of a.evidence_turns){const turn=record?.transcript[n-1];if(turn){card.append(el("blockquote",`[${n}] ${turn.timestamp} · ${turn.speaker}: ${turn.text}`));const b=el("button",`К реплике ${n}`);b.onclick=()=>{selected=a.conversation_id;lastDetail="";renderDetails();jump(n)};card.append(b)}}
+  if(a.status==="reviewed")card.append(el("p",`Решение: ${displayValue(a.new_value)} · ${a.reason}`),el("p",`Итог ИИ: ${a.original_ai_score.final_score??"N/A"} → итог после решения: ${a.final_score.final_score??"N/A"}`));
+  else if($("role").value==="supervisor"&&rule){
+   const label=el("label","Новая оценка "),select=el("select");
+   for(const v of rule.allowed_values){const o=el("option",displayValue(v));o.value=JSON.stringify(v);select.append(o)}select.value=JSON.stringify(a.previous_value);label.append(select);
+   const reason=el("textarea");reason.placeholder="Причина решения супервизора";reason.maxLength=10000;
+   const approve=el("button","Утвердить","primary");approve.disabled=snapshot.progress.running;
+   approve.onclick=async()=>{if(!reason.value.trim()){message("Введите причину решения.",true);return}approve.disabled=true;try{await post("/api/appeal/resolve",{conversation_id:a.conversation_id,criterion_id:a.criterion_id,new_value:JSON.parse(select.value),reason:reason.value});lastDetail="";await refresh();message("Решение сохранено. Итог пересчитан.")}catch(e){message(e.message,true);approve.disabled=false}};card.append(label,reason,approve)
+  }
+  $("appealList").append(card)
+ }
+}
+$("appealsTab").onclick=()=>show("appeals");
+$("role").onchange=()=>{lastDetail="";renderDetails();renderAppeals()};
+$("appealFilter").onchange=()=>renderAppeals();
+try{$("apiKey").value=localStorage.getItem("gemini_api_key")||""}catch{}
+$("apiKey").addEventListener("input",()=>{try{localStorage.setItem("gemini_api_key",$("apiKey").value)}catch{message("Браузер запретил сохранение ключа.",true)}});
+
 (async()=>{try{rules=(await post("/api/checklist",{})).checklist;renderRules();await refresh()}catch(e){message(e.message,true)}})();
 </script>
 </html>
