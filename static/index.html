@@ -16,12 +16,14 @@
 <div class="toolbar">
 <label>API-ключ Gemini <input id="apiKey" type="password" value="" autocomplete="off" spellcheck="false" placeholder="Введите API-ключ"></label>
 <label>Набор <select id="group"><option>DEV</option><option>PROD</option></select></label>
+<label>group_id API <input id="sourceGroup" placeholder="По умолчанию DEV / PROD" maxlength="200"></label>
 <input type="file" id="file" accept=".json,application/json" aria-label="JSON-файл">
 <button id="upload">Загрузить файл</button><button id="get">Получить через GET</button>
-<button id="evaluate" class="primary">Оценить все</button><button id="download" disabled>Скачать results.json</button>
+<button id="evaluate" class="primary">Оценить все</button><button id="cancel" disabled>Остановить оценку</button><button id="resume">Продолжить / повторить ошибки</button><button id="download" disabled>Скачать results.json</button>
 </div>
 <div class="status"><progress id="progress" value="0" max="1"></progress><span id="progressText">Загрузите набор</span></div>
 <p id="connection" class="muted"></p>
+<details><summary>Проверка нескольких диалогов без изменения выгрузки</summary><input id="verifyIds" placeholder="ID через запятую"><button id="verifySample">Проверить выборку</button><pre id="verifyStatus"></pre></details>
 <div id="metrics" class="metrics"></div>
 <div class="layout">
 <aside class="panel"><h2>Диалоги</h2><div id="list">Набор ещё не загружен</div></aside>
@@ -50,7 +52,8 @@ function post(path,body){return api(path,{method:"POST",headers:{"Content-Type":
 function show(tab){for(const id of ["analytics","settings","appeals"])$(id).hidden=tab!==id}
 function controls(){
  const running=busy||snapshot?.progress.running;
- for(const id of ["upload","get","evaluate","save","add"])$(id).disabled=running;
+ for(const id of ["upload","get","evaluate","resume","save","add"])$(id).disabled=running;
+ $("cancel").disabled=!snapshot?.progress.running;
  const complete=snapshot&&snapshot.records.length>0&&Object.keys(snapshot.results).length===snapshot.records.length&&!running;
  $("download").disabled=!complete;
 }
@@ -59,13 +62,13 @@ async function refresh(){
  refreshing=true;
  const wasRunning=snapshot?.progress.running;
  try{snapshot=await api("/api/dialogues");}finally{refreshing=false}
- if(wasRunning&&!snapshot.progress.running)message(snapshot.progress.error||`Оценка завершена. Ошибок: ${snapshot.progress.errors}`,!!snapshot.progress.error);
+ if(wasRunning&&!snapshot.progress.running)message(snapshot.progress.error||(snapshot.progress.cancelled?"Оценка остановлена. Готовые результаты сохранены.":`Оценка завершена за ${snapshot.progress.elapsed_seconds} сек. Ошибок: ${snapshot.progress.errors}`),!!snapshot.progress.error);
  if(snapshot.progress.error)message(snapshot.progress.error,true);
  if(!snapshot.records.some(r=>r.conversation_id===selected))selected=snapshot.records[0]?.conversation_id;
  const p=snapshot.progress,done=Object.keys(snapshot.results).length;
  $("progress").max=Math.max(snapshot.records.length,1);$("progress").value=done;
- $("progressText").textContent=`Оценено ${done} / ${snapshot.records.length} · ошибок ${Object.values(snapshot.results).filter(r=>r.status==="error").length}${p.running?" · выполняется":""}`;
- $("connection").textContent=`Модель: ${snapshot.model} · набор ${snapshot.group_id}`;
+ $("progressText").textContent=`Оценено ${done} / ${snapshot.records.length} · ошибок ${Object.values(snapshot.results).filter(r=>r.status==="error").length}${p.running?" · выполняется":p.cancelled?" · остановлено":""} · ${Number(p.elapsed_seconds||0).toFixed(1)} сек`;
+ $("connection").textContent=`Модель: ${snapshot.model} · набор ${snapshot.group_id} · до ${snapshot.performance?.workers||1} запросов одновременно · ${snapshot.performance?.rpm||"—"} запросов/мин · thinking ${snapshot.performance?.thinking||"minimal"}${snapshot.performance?.pause_seconds?" · Пауза API: "+snapshot.performance.pause_seconds+" сек":""}`;
  $("list").replaceChildren();
  for(const r of snapshot.records){
   const result=snapshot.results[r.conversation_id];
@@ -158,25 +161,34 @@ async function load(file){
  try{
   let result;
   if(file){const f=$("file").files[0];if(!f)throw Error("Выберите JSON-файл.");const form=new FormData();form.append("file",f);form.append("group_id",$("group").value);result=await api("/api/load-data",{method:"POST",body:form})}
-  else result=await post("/api/load-data",{group_id:$("group").value});
+  else result=await post("/api/load-data",{group_id:$("group").value,source_group_id:$("sourceGroup").value.trim()});
   selected=null;lastDetail="";await refresh();message("Загружено диалогов: "+result.count);
  }catch(e){message(e.message,true)}finally{busy=false;controls()}
 }
 $("upload").onclick=()=>load(true);$("get").onclick=()=>load(false);
-$("evaluate").onclick=async()=>{
+async function startEvaluation(resume=false){
  const key=$("apiKey").value.trim();
  if(!key){message("Введите API-ключ Gemini.",true);return}
  busy=true;controls();message("Запуск оценки…");
- try{await post("/api/evaluate",{api_key:key});await refresh();startPoll();message("Оценка запущена в фоне.")}
+ try{await post("/api/evaluate",{api_key:key,resume});await refresh();startPoll();message("Оценка запущена в фоне.")}
  catch(e){message(e.message,true)}
  finally{busy=false;controls()}
 };
+$("cancel").onclick=async()=>{ $("cancel").disabled=true;try{await post("/api/evaluate/cancel",{});await refresh();message("Оценка остановлена. Можно продолжить с оставшихся диалогов.")}catch(e){message(e.message,true);controls()}};
+$("evaluate").onclick=()=>startEvaluation(false);
+$("resume").onclick=()=>startEvaluation(true);
 $("download").onclick=()=>{
  const blob=new Blob([JSON.stringify(snapshot.export,null,2)],{type:"application/json;charset=utf-8"});
  const url=URL.createObjectURL(blob),a=el("a");a.href=url;a.download="results.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
  message("Сохраните файл в results/"+snapshot.group_id.toLowerCase()+"/results.json и сделайте commit + push.");
 };
 
+$("verifySample").onclick=async()=>{
+ const ids=$("verifyIds").value.split(",").map(x=>x.trim()).filter(Boolean);
+ try{await post("/api/verify",{api_key:$("apiKey").value.trim(),ids});$("verifySample").disabled=true;
+ const timer=setInterval(async()=>{try{const r=await api("/api/verify");$("verifyStatus").textContent=JSON.stringify(r,null,2);if(!r.running){clearInterval(timer);$("verifySample").disabled=false}}catch(e){clearInterval(timer);$("verifySample").disabled=false;message(e.message,true)}},1500);
+ }catch(e){message(e.message,true)}
+};
 const displayValue=v=>v===null?"N/A":v===true?"Да":v===false?"Нет":String(v);
 function renderMetrics(){
  const ok=Object.values(snapshot.results).filter(r=>r.status!=="error"&&r.score?.final_score!==null);
