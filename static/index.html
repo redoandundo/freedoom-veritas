@@ -108,10 +108,10 @@ function controls(){
  const missing=Math.max(0,(snapshot?.records.length||0)-results.length);
  const stale=Math.max(0,(snapshot?.stale_results||0)-errors);
  const ready=results.length>0&&!missing&&!errors&&!stale&&!running;
- $("download").disabled=!results.length;
+ $("download").disabled=!snapshot?.records.length;
  $("download").textContent=ready?"↓ Экспорт JSON":`↓ Экспорт JSON${errors?" · ошибок "+errors:" · частичный"}`;
  $("download").title=ready?"Скачать results.json":"Скачать текущие результаты; файл ещё не готов к сдаче";
- $("exportHint").textContent=running?"Можно скачать снимок уже обработанных диалогов; оценка продолжится.":!results.length?"":ready?"Все диалоги обработаны: results.json готов к скачиванию.":`Файл ещё не готов к сдаче: ошибок ${errors}, не обработано ${missing}, устаревших оценок ${stale}. Можно скачать текущий JSON; «Повтор» обработает ошибки и оставшиеся диалоги.`;
+ $("exportHint").textContent=running?"Можно скачать снимок уже обработанных диалогов; оценка продолжится.":!results.length?"":ready?"Все диалоги обработаны: results.json готов к скачиванию.":`В JSON включены все ${snapshot?.records.length||0} диалогов: ошибок ${errors}, ещё не обработано ${missing}, устаревших оценок ${stale}. Ошибки и неоценённые диалоги записаны со статусом error. Проверьте версии оценок перед сдачей.`;
 
 }
 async function refresh(){
@@ -303,8 +303,8 @@ $("resume").onclick=()=>startEvaluation(true);
 $("download").onclick=()=>{
  const blob=new Blob([JSON.stringify(snapshot.export,null,2)],{type:"application/json;charset=utf-8"});
  const url=URL.createObjectURL(blob),a=el("a");a.href=url;const complete=snapshot.records.length===Object.keys(snapshot.results).length&&!Object.values(snapshot.results).some(r=>r.status==="error")&&!snapshot.stale_results&&!snapshot.progress.running;
- a.download=complete?"results.json":"results-incomplete.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
- message(complete?"Сохраните файл в results/"+snapshot.group_id.toLowerCase()+"/results.json и сделайте commit + push.":"Скачан results-incomplete.json: текущие результаты с замечаниями. Он ещё не готов к сдаче. Ошибки сохранены в JSON без подмены оценок.");
+ a.download="results.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ message(complete?"Сохраните файл в results/"+snapshot.group_id.toLowerCase()+"/results.json и сделайте commit + push.":"Скачан results.json со всеми диалогами набора. Сбои и неоценённые диалоги включены со статусом error. Проверьте ошибки и актуальность оценок перед сдачей.");
 };
 
 $("verifySample").onclick=async()=>{

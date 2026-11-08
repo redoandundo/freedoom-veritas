@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 DATA.mkdir(exist_ok=True)
 MODEL = "gemini-3.5-flash-lite"
-EVALUATOR_VERSION = "2026-11-08-closure-v9"
+EVALUATOR_VERSION = "2026-11-08-rules-v10"
 CONFIG_PATH = DATA / "config.json"
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8")) if CONFIG_PATH.exists() else {}
 ORGANIZER_API_URL = CONFIG.get("organizer_api_url", "")
@@ -198,6 +198,10 @@ def calculate_score(criteria, rules):
 
 def export_result(result):
     # Internal appeal audit stays in state; submission retains the original schema.
+    if result["status"] == "error":
+        return {"conversation_id": result["conversation_id"], "status": "error",
+                "criteria": [], "score": None,
+                "error": str(result.get("error") or "Оценка диалога не получена.")}
     exported = {k: copy.deepcopy(result[k]) for k in ("conversation_id", "criteria", "score", "error") if k in result}
     exported["status"] = "error" if result["status"] == "error" else "ok"
     return exported
@@ -213,18 +217,15 @@ def archive_run():
 def export_payload():
     return {"schema_version": "1.0", "team_name": TEAM,
             "model": {"mode": "external_api", "name": state["model"]},
-            "results": [export_result(state["results"][r["conversation_id"]]) for r in state["records"]
-                        if r["conversation_id"] in state["results"]]}
+            "results": [export_result(state["results"].get(r["conversation_id"], {
+                "conversation_id": r["conversation_id"], "status": "error",
+                "error": "Диалог ещё не оценён: обработка не начата, не завершена или была остановлена."}))
+                for r in state["records"]]}
 
 
 def persist():
     save(DATA / "state.json", state)
-    complete = bool(state["records"]) and all(
-        (result := state["results"].get(record["conversation_id"]))
-        and result["status"] != "error" and result.get("evaluator_version") == EVALUATOR_VERSION
-        for record in state["records"])
-    if complete:
-        save(ROOT / "results" / state["group"].lower() / "results.json", export_payload())
+    save(ROOT / "results" / state["group"].lower() / "results.json", export_payload())
 
 
 SYSTEM = """Оцени только работу человека speaker=operator по переданному чек-листу.
@@ -260,16 +261,23 @@ identification: null для общего вопроса без защищённ�
 подтверждённой проверке до доступа/раскрытия; обещание проверить не равно проверке.
 consultation: null если чат закончился до формулировки запроса. Не ставь 0 за такой обрыв.
 Если остался существенный вопрос — 10, а не 15/20; 15 только за второстепенный пропуск.
+Если клиент спросил «где обновить данные» И «когда снова можно подавать заявку на вывод»,
+а оператор ответил только про обновление данных, consultation=10: часть запроса закрыта,
+существенный вопрос о сроке вывода полностью открыт. Срок восстановления возможности
+вывода — самостоятельная существенная потребность, а не второстепенная деталь.
+Для 15 все основные вопросы должны быть закрыты; отсутствие ответа на второй основной
+вопрос запрещает 15. Указание раздела приложения не является ответом о сроках.
 closure: null если клиент оборвал разговор до возможности завершить; false если
 возможность была, но требуемого завершения нет. Одного прощания недостаточно:
-нужны также конкретный итог ИЛИ прямой вопрос о дальнейшей помощи, если так требует чек-лист.
+нужны также конкретный итог ИЛИ явное предложение дальнейшей помощи, если так требует чек-лист.
 Строгие границы для closure:
 «You're welcome», «Have a good day», «Take care», «Пожалуйста», «Хорошего дня»,
 «Сау болыңыз» — ТОЛЬКО вежливость/прощание. Это НЕ предложение помощи и НЕ итог.
-Предложение помощи должно содержать ПРЯМОЙ ВОПРОС о дальнейших действиях:
+Предложение помощи может быть вопросом ИЛИ утверждением. Знак вопроса не обязателен.
+Засчитываются «Я готов помочь с другими вопросами», «Обращайтесь, если появятся вопросы»,
 «Is there anything else I can help with?», «Остались ли у вас вопросы?»,
-«Тағы сұрақтарыңыз бар ма?». Утверждение «обращайтесь» без прямого вопроса
-не засчитывай как предложение помощи. Оно также само по себе не является итогом.
+«Тағы сұрақтарыңыз бар ма?». Требуется явное предложение дальнейшей помощи,
+а не одна вежливость. Не отклоняй такое предложение только из-за утвердительной формы.
 Если завершение оператора состоит только из «You're welcome. Have a good day!»
 или аналогичных фраз вежливости, closure СТРОГО false. Запрещено приписывать
 отсутствующее предложение помощи. Подведением итога считается конкретное
@@ -301,7 +309,7 @@ r: одно законченное предложение с конкретно�
 И прощание. «Хорошего дня», «До свидания», «Пожалуйста» сами по себе — только
 прощание/вежливость. «Путь я указал. Хорошего дня» не итог решённого вопроса,
 если клиент всё ещё спрашивал о сроках: closure=false.
-3. Не пиши «предложил помощь», если в реплике оператора нет прямого вопроса о дальнейшей помощи. Для такого вывода e обязательно включает реплику с этим вопросом. Фраза вежливости не доказательство помощи или итога.
+3. Не пиши «предложил помощь», если в реплике оператора нет явного предложения дальнейшей помощи (вопроса или утверждения). Для такого вывода e обязательно включает эту реплику. Фраза вежливости не доказательство помощи или итога.
 4. Сверь каждое v с r: «не успел из-за обрыва» -> closure=null;
 «существенных данных не хватало» -> discovery не null;
 для contact учитывай анонимизированное имя. Для closure=true e должны подтверждать
@@ -322,7 +330,7 @@ def response_schema(rules, turn_count):
             "e": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": turn_count}, "minItems": 1, "maxItems": 3},
             "r": {"type": "string", "description": "Сначала установи факты по e. Одно конкретное предложение, обычно 8–18 слов; не приписывай отсутствующие действия."},
             "v": {**value_schema, "description": rule["rule_text"] + (
-                " Вежливость/прощание (You're welcome, Have a good day, Take care, Пожалуйста, Хорошего дня, Сау болыңыз) не является итогом или помощью. Помощь — только прямой вопрос о дальнейших действиях. Только прощание без конкретного итога/прямого вопроса: false. Не выдумывай помощь."
+                " Вежливость/прощание (You're welcome, Have a good day, Take care, Пожалуйста, Хорошего дня, Сау болыңыз) не является итогом или помощью. Помощь — явное предложение в вопросительной или утвердительной форме, например «Я готов помочь с другими вопросами» или «Обращайтесь, если появятся вопросы». Знак вопроса не обязателен. Только прощание без конкретного итога/явного предложения помощи: false. Не выдумывай помощь."
                 if rule == next((r for r in DEFAULT_CHECKLIST if r["id"] == "closure"), None) else "")}},
             "required": ["v", "r", "e"], "additionalProperties": False}
     return {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
@@ -772,9 +780,6 @@ async def load_data(request: Request):
         state.update(group=group, records=records, results={}, run_checklist=[],
                      model=MODEL, team_name=TEAM)
         persist()
-        old = ROOT / "results" / group.lower() / "results.json"
-        if old.exists():
-            old.unlink()
         progress.update(running=False, done=0, total=len(records), errors=0)
         return {"count": len(records), "group_id": group}
 

@@ -1,5 +1,6 @@
 """Offline regression checks. Never call Gemini or mutate live project state."""
 import asyncio
+import json
 import copy
 import unittest
 import tempfile
@@ -72,15 +73,27 @@ class EvaluationTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("original_ai",exported)
             self.assertEqual(exported["status"],"ok")
 
-    def test_partial_run_preserves_last_complete_export(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root=Path(temp); target=root/"results/dev/results.json"
-            target.parent.mkdir(parents=True);target.write_text("previous")
-            state={"group":"DEV","records":[{"conversation_id":"a"}],"results":{},"model":app.MODEL}
-            with patch.object(app,"state",state),patch.object(app,"ROOT",root),patch.object(app,"DATA",root/"data"):
-                app.persist();self.assertEqual(target.read_text(),"previous")
-                state["results"]["a"]={"conversation_id":"a","status":"ok","criteria":self.criteria,"score":app.calculate_score(self.criteria,self.rules),"evaluator_version":app.EVALUATOR_VERSION}
-                app.persist();self.assertIn('"team_name": "Veritas"',target.read_text())
+    def test_full_export_includes_errors_and_pending(self):
+        for group,count in [("DEV",65),("PROD",10)]:
+            with self.subTest(group=group),tempfile.TemporaryDirectory() as temp:
+                root=Path(temp);target=root/"results"/group.lower()/"results.json"
+                target.parent.mkdir(parents=True);target.write_text("old export")
+                records=[{"conversation_id":f"sample-{i}"} for i in range(count)]
+                success={"conversation_id":"sample-0","status":"ok","criteria":self.criteria,"score":app.calculate_score(self.criteria,self.rules),"evaluator_version":app.EVALUATOR_VERSION}
+                failed={"conversation_id":"sample-1","status":"error","criteria":[{"wrong":"stale"}],"score":{"final_score":100},"error":"HTTP 503"}
+                state={"group":group,"records":records,"results":{"sample-0":success,"sample-1":failed},"model":app.MODEL}
+                with patch.object(app,"state",state),patch.object(app,"ROOT",root),patch.object(app,"DATA",root/"data"):
+                    app.persist();output=json.loads(target.read_text())
+                    self.assertEqual(len(output["results"]),count)
+                    self.assertEqual([r["conversation_id"] for r in output["results"]],[r["conversation_id"] for r in records])
+                    self.assertEqual(output["results"][1],{"conversation_id":"sample-1","status":"error","criteria":[],"score":None,"error":"HTTP 503"})
+                    self.assertEqual(output["results"][2]["status"],"error")
+                    self.assertIsNone(output["results"][2]["score"])
+                    self.assertNotIn("sample-2",state["results"])
+                    state["results"]={}
+                    app.persist();output=json.loads(target.read_text())
+                    self.assertEqual(len(output["results"]),count)
+                    self.assertTrue(all(r["status"]=="error" for r in output["results"]))
 
     async def test_daily_quota_rejects_before_mutation(self):
         state={"records":[{"conversation_id":"a"}],"results":{"a":{"status":"ok"}}}
