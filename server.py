@@ -423,9 +423,25 @@ class RequestLimiter:
             self.persist_history()
 
 
-limiter = RequestLimiter(rpm=min(14, int(CONFIG.get("requests_per_minute", 14))),
-                         tpm=int(CONFIG.get("input_token_budget", 2000000)),
-                         history_path=DATA / "rate_history.json")
+def new_limiter(history_path=None):
+    return RequestLimiter(rpm=min(14, int(CONFIG.get("requests_per_minute", 14))),
+                          tpm=int(CONFIG.get("input_token_budget", 2000000)),
+                          history_path=history_path)
+
+
+# Old unscoped history cannot safely be attributed to any supplied credential.
+limiter = new_limiter()
+limiter_profiles = {}
+
+
+def select_limiter(key):
+    global limiter
+    fingerprint = hashlib.sha256((MODEL + "\0" + key.strip()).encode()).hexdigest()
+    if fingerprint not in limiter_profiles:
+        limiter_profiles[fingerprint] = new_limiter(DATA / "rate_profiles" / (fingerprint + ".json"))
+    limiter = limiter_profiles[fingerprint]
+
+
 active_evaluation = None
 run_started = None
 WORKERS = 5
@@ -479,7 +495,38 @@ def apply_evidence_guards(criteria, record, rules):
     return changes
 
 
+AI_TIMEOUT = httpx.Timeout(connect=20, read=180, write=30, pool=30)
+
+
+class ProviderAccessError(Exception):
+    pass
+
+
+def describe_failure(exc):
+    if isinstance(exc, httpx.ReadTimeout):
+        return "Gemini не прислал ответ за 180 секунд.", True
+    if isinstance(exc, (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError)):
+        return "Временный сбой соединения с Gemini.", True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code in (502, 503, 504):
+            return f"Gemini временно недоступен или перегружен (HTTP {code}).", True
+        if code == 429:
+            return "Gemini ограничил частоту или квоту запросов (429). Дождитесь указанной паузы.", False
+        return f"Gemini отклонил запрос (HTTP {code}). Проверьте диагностику.", False
+    return str(exc)[:500], False
+
+
 async def evaluate_one(client, record, rules, model, key):
+    for attempt in range(1, 4):
+        result = await evaluate_attempt(client, record, rules, model, key)
+        result["attempts"] = attempt
+        if result["status"] != "error" or not result.get("retryable") or attempt == 3:
+            return result
+        await asyncio.sleep(2 ** attempt + random.uniform(0, 1))
+
+
+async def evaluate_attempt(client, record, rules, model, key):
     first = next((i for i, t in enumerate(record["transcript"], 1) if t["speaker"] == "operator"), None)
     prompt = "ПЕРВЫЙ ОТВЕТ ОПЕРАТОРА: " + str(first) + "\nЧЕК-ЛИСТ:\n" + json.dumps(rules, ensure_ascii=False) + "\nТРАНСКРИПТ:\n" + format_transcript_for_ai(record["transcript"])
     anchors = []
@@ -490,11 +537,12 @@ async def evaluate_one(client, record, rules, model, key):
     prompt += "\nОПОРНЫЕ РЕПЛИКИ (это данные, исходная нумерация):\n" + "\n".join(anchors)
     schema = response_schema(rules, len(record["transcript"]))
     diagnostic = {"id": uuid4().hex, "conversation_id": record["conversation_id"], "model": model,
-                  "evaluator_version": EVALUATOR_VERSION, "max_output_tokens": 16384, "thinking": "high", "time": datetime.now(timezone.utc).isoformat()}
+                  "evaluator_version": EVALUATOR_VERSION, "max_output_tokens": 16384, "thinking": "low", "time": datetime.now(timezone.utc).isoformat()}
     started = time.monotonic()
     stage = "rate_limiter"
     try:
         await limiter.acquire(len((SYSTEM + prompt + json.dumps(schema)).encode("utf-8")) + 1024)
+        diagnostic["queue_seconds"] = round(time.monotonic() - started, 3)
         stage = "network"
         response = await client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
@@ -502,10 +550,18 @@ async def evaluate_one(client, record, rules, model, key):
             json={"systemInstruction": {"parts": [{"text": SYSTEM}]},
                   "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                   "generationConfig": {"responseMimeType": "application/json", "responseJsonSchema": schema,
-                                       "maxOutputTokens": 16384, "thinkingConfig": {"thinkingLevel": "high"}}})
+                                       "maxOutputTokens": 16384, "thinkingConfig": {"thinkingLevel": "low"}}})
         diagnostic["http_status"] = response.status_code
         diagnostic["response"] = response.text.replace(key, "[REDACTED]")[:24000]
         stage = "http"
+        if response.status_code in (401, 403):
+            try:
+                provider_message = str(response.json().get("error", {}).get("message", ""))
+            except (ValueError, AttributeError):
+                provider_message = ""
+            explanation = "Gemini: бесплатный тариф недоступен для проекта этого ключа (403)." if "free tier is not available" in provider_message.lower() else f"Gemini отклонил доступ для этого API-ключа ({response.status_code}). Проверьте проект и ограничения ключа."
+            diagnostic.update(status="error", stage="provider_access", detail=explanation)
+            raise ProviderAccessError(explanation)
         if response.status_code == 429:
             await limiter.backoff(response, 0)
             if is_daily_quota(response):
@@ -540,10 +596,12 @@ async def evaluate_one(client, record, rules, model, key):
     except (ValueError, KeyError, IndexError, TypeError, httpx.HTTPError) as exc:
         detail = (str(exc) if not isinstance(exc, httpx.HTTPError) else type(exc).__name__).replace(key, "[REDACTED]")[:500]
         diagnostic.update(status="error", stage=stage, exception=type(exc).__name__, detail=detail)
-        error = f"{stage}: {detail}; HTTP {diagnostic.get('http_status', '—')}; диагностика {diagnostic['id']}"
-        return {"conversation_id": record["conversation_id"], "status": "error", "criteria": [], "score": None, "error": error}
+        explanation, retryable = describe_failure(exc)
+        error = f"{explanation.replace(key, '[REDACTED]')} Диагностика: {diagnostic['id']}"
+        return {"conversation_id": record["conversation_id"], "status": "error", "criteria": [], "score": None, "error": error, "retryable": retryable}
     finally:
         diagnostic["duration_seconds"] = round(time.monotonic() - started, 3)
+        diagnostic["request_seconds"] = round(diagnostic["duration_seconds"] - diagnostic.get("queue_seconds", diagnostic["duration_seconds"]), 3)
         save(DATA / "diagnostics" / (diagnostic["id"] + ".json"), diagnostic)
 
 
@@ -717,7 +775,7 @@ async def dialogues():
             "export": export_payload(), "model": MODEL,
             "stale_results": sum(r.get("evaluator_version") != EVALUATOR_VERSION for r in state["results"].values()),
             "run_checklist": state["run_checklist"], "appeals": state["appeals"],
-            "performance": {"workers": WORKERS, "rpm": limiter.rpm, "thinking": "high",
+            "performance": {"workers": WORKERS, "rpm": limiter.rpm, "thinking": "low",
                             "pause_seconds": max(0, round(limiter.until - time.monotonic())),
                             "daily_quota_wait_seconds": max(0, round(limiter.daily_until - time.monotonic()))}}
 
@@ -751,6 +809,7 @@ async def evaluate(request: Request, background_tasks: BackgroundTasks):
     async with lock:
         if progress["running"] or verification["running"]:
             raise HTTPException(409, "Оценка уже выполняется.")
+        select_limiter(key)
         if limiter.daily_until > time.monotonic():
             raise HTTPException(429, f"Суточная квота Gemini исчерпана. До сброса примерно {int((limiter.daily_until-time.monotonic())/60)+1} мин.")
         if not state["records"]:
@@ -825,7 +884,7 @@ async def evaluate_background(key, rules, records):
                 if fatal:
                     raise HTTPException(502, fatal)
                 result = await evaluate_one(client, record, rules, MODEL, key)
-            except DailyQuotaExceeded:
+            except (DailyQuotaExceeded, ProviderAccessError):
                 raise
             except HTTPException as e:
                 fatal = str(e.detail)
@@ -847,7 +906,7 @@ async def evaluate_background(key, rules, records):
             progress["errors"] += int(result["status"] == "error")
             persist()
     try:
-        async with httpx.AsyncClient(timeout=90, limits=httpx.Limits(max_connections=WORKERS)) as client:
+        async with httpx.AsyncClient(timeout=AI_TIMEOUT, limits=httpx.Limits(max_connections=WORKERS)) as client:
             tasks = [asyncio.create_task(worker(client, record)) for record in records]
             try:
                 await asyncio.gather(*tasks)
@@ -857,7 +916,7 @@ async def evaluate_background(key, rules, records):
                     if not task.done():
                         task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
-    except DailyQuotaExceeded as exc:
+    except (DailyQuotaExceeded, ProviderAccessError) as exc:
         progress["error"] = str(exc)
         progress["cancelled"] = True
     except asyncio.CancelledError:
@@ -965,13 +1024,14 @@ async def verify_sample(request: Request, background_tasks: BackgroundTasks):
     ids = body.get("ids")
     if not isinstance(ids, list) or not 1 <= len(ids) <= 10 or any(not isinstance(i, str) for i in ids):
         raise HTTPException(400, "Укажите 1–10 ID диалогов.")
-    if limiter.daily_until > time.monotonic():
-        raise HTTPException(429, "Суточная квота Gemini исчерпана. Дождитесь сброса лимита.")
     records = [copy.deepcopy(r) for r in state["records"] if r["conversation_id"] in ids]
     if len(records) != len(set(ids)):
         raise HTTPException(400, "Неизвестный ID диалога.")
     if progress["running"] or verification["running"]:
         raise HTTPException(409, "Дождитесь текущей обработки.")
+    select_limiter(key)
+    if limiter.daily_until > time.monotonic():
+        raise HTTPException(429, "Суточная квота Gemini исчерпана для этого ключа. Дождитесь сброса лимита.")
     verification.update(running=True, results=[], error=None)
     background_tasks.add_task(verify_background, key, records, copy.deepcopy(checklist))
     return {"status": "started"}
@@ -983,7 +1043,7 @@ async def verify_background(key, records, rules):
             result = await evaluate_one(client, record, rules, MODEL, key)
             verification["results"].append(result)
     try:
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=AI_TIMEOUT) as client:
             tasks = [asyncio.create_task(one(client, r)) for r in records]
             try:
                 await asyncio.gather(*tasks)
