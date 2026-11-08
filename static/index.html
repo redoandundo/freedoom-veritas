@@ -2,26 +2,20 @@
 <html lang="ru">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FreeDoom — оценка диалогов</title>
+<title>FreeDoom by Veritas | CQA Intelligence</title>
 <style>
-:root{font-family:system-ui,sans-serif;color:#21312e;background:#f3f6f4}
-*{box-sizing:border-box}body{margin:0}header{background:#173e35;color:white;padding:20px 28px;display:flex;align-items:center;gap:24px}h1{margin:0;font-size:24px}header small{color:#b5d6c8}button,input,textarea,select{font:inherit;border:1px solid #cbd8d0;border-radius:7px;padding:9px}button{cursor:pointer;background:white;color:#21312e}button:hover{background:#e7f2eb}button:disabled{opacity:.5;cursor:wait}.primary{background:#18734d;color:white}.primary:hover{background:#105f3e}nav{margin-left:auto;display:flex;gap:8px}main{padding:20px}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:white;padding:14px;border-radius:10px}.toolbar input[type=file]{max-width:270px}.status{padding:12px 0;display:flex;gap:15px;align-items:center}progress{width:200px;accent-color:#18734d}.layout{display:grid;grid-template-columns:230px minmax(280px,1fr) minmax(280px,390px);gap:16px}.panel{background:white;border:1px solid #e0e7e2;border-radius:10px;padding:15px;max-height:70vh;overflow:auto}h2{font-size:18px;margin:0 0 14px}h3{font-size:15px}.dialog{display:block;width:100%;text-align:left;margin-bottom:8px}.selected{border:2px solid #18734d}.turn{padding:12px;background:#f3f6f4;margin:10px 0;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}.turn.operator{background:#edf7f0}.turn:target,.highlight{outline:2px solid #d7ad35}.meta{display:block;font-size:12px;color:#65766d;margin-bottom:5px}.criterion{border-bottom:1px solid #e2e9e4;padding:10px 0}.criterion p{font-size:14px;line-height:1.5}.good{color:#15704a}.bad{color:#ae4035}.muted{color:#65766d}.error{color:#a92b2b}#message{white-space:pre-wrap;padding:8px 0;min-height:28px}.editor{max-width:950px;margin:auto}.edit-card{background:white;padding:18px;border-radius:10px;margin-bottom:12px;display:grid;grid-template-columns:1fr 2fr 100px;gap:12px}.edit-card label{display:flex;flex-direction:column;gap:5px;font-size:13px}.wide{grid-column:1/-1}textarea{resize:vertical;min-height:95px}a{color:#126e50}audio{width:100%}[hidden]{display:none!important}@media(max-width:950px){.layout{grid-template-columns:1fr}.panel{max-height:55vh}header{flex-wrap:wrap}.edit-card{grid-template-columns:1fr}nav{margin-left:0}}
+:root{font-family:Inter,system-ui,sans-serif;color:#e2e8f0;background:#0b111a;font-size:14px;color-scheme:dark}*{box-sizing:border-box}body{margin:0}button,input,textarea,select{font:inherit;color:inherit;border:1px solid #29364a;border-radius:9px;padding:10px 12px;background:#111a27}button{cursor:pointer;transition:background .2s,border-color .2s,transform .2s,box-shadow .2s}button:hover{background:#203044;border-color:#52637c}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid #34d399;outline-offset:3px}button:disabled{opacity:.4;cursor:not-allowed}.primary{background:#059669;border-color:#10b981;color:#fff;font-weight:650}.primary:hover{background:#047857}header{padding:18px 24px;display:flex;align-items:center;justify-content:space-between;gap:24px;border-bottom:1px solid #1f293d;background:#101823}.brand{display:grid;gap:4px;flex-shrink:0}h1{font-size:23px;margin:0;letter-spacing:-1px}.terminal{font:10px ui-monospace,monospace;letter-spacing:1.5px;color:#94a3b8}.terminal:before,.status-dot{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:#34d399;margin-right:7px;box-shadow:0 0 10px #10b98155}nav,.role-switch{display:flex;padding:4px;gap:3px;background:#080e17;border:1px solid #253044;border-radius:12px}nav button,.role-switch button{border:0;background:transparent;color:#94a3b8;white-space:nowrap}nav button.active,.role-switch button.active{background:#263347;color:#f1f5f9;box-shadow:0 2px 6px #0003}nav button.active{color:#6ee7b7}.header-tools{display:flex;align-items:center;gap:12px}.role-switch button{padding:7px 9px;font-size:12px}.key-control{position:relative}.key-control summary{cursor:pointer;font-size:12px;color:#94a3b8}.key-control[open] label{position:absolute;right:0;top:30px;z-index:40;width:270px;padding:16px;background:#182333;border:1px solid #334155;border-radius:12px;box-shadow:0 12px 32px #0008}.key-control input{width:100%;margin-top:10px}.key-ready{color:#6ee7b7!important}main{padding:0 24px 24px}#message{white-space:pre-wrap;min-height:20px;padding:8px 0;font-size:13px}#message:empty{padding:0}.toolbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#131d2b;border:1px solid #263247;border-radius:14px;padding:16px}.source-section{display:flex;gap:8px;align-items:center}.source-section input{width:180px}.separator{color:#64748b;font-size:12px}.toolbar label{color:#94a3b8;font-size:12px}.toolbar #evaluate{margin-left:auto;padding:12px 20px;box-shadow:0 4px 20px #05966920}.secondary-actions{display:flex;gap:6px}.secondary-actions button{font-size:12px;padding:9px}.status{display:flex;align-items:center;gap:14px;padding:16px 0;font-size:12px;color:#94a3b8}progress{appearance:none;border:0;border-radius:8px;overflow:hidden;width:200px;height:6px;background:#243247}progress::-webkit-progress-bar{background:#243247}progress::-webkit-progress-value{background:#10b981;transition:width .7s ease}progress::-moz-progress-bar{background:#10b981}.running progress,.running .status-dot{animation:pulse 1.5s ease-in-out infinite}@keyframes pulse{50%{opacity:.45}}#connection{font-size:11px;margin:0 0 12px;color:#64748b}details{font-size:12px}summary{cursor:pointer}.metrics{display:flex;gap:12px;margin:16px 0}.metric{border:1px solid #253247;background:#131d2b;padding:12px 16px;border-radius:10px;color:#b5c4d5;font-size:12px}.layout{display:grid;grid-template-columns:220px minmax(300px,1fr) minmax(300px,360px);gap:16px;align-items:start}.panel{background:#131b26;border:1px solid #1f293d;border-radius:14px;padding:16px;height:72vh;overflow:auto;scrollbar-width:thin;scrollbar-color:#344155 transparent}h2{font-size:15px;margin:0 0 16px}h3{font-size:13px;line-height:1.5;margin:0}.dialog{display:block;width:100%;text-align:left;margin-bottom:8px;font:12px ui-monospace,monospace;padding:13px 10px;background:#101824}.dialog.selected{border-color:#10b981;background:#10352e;color:#6ee7b7}#chat{padding:0;scroll-padding-top:180px}.chat-header{position:sticky;top:0;z-index:20;padding:16px;background:#131b26e6;backdrop-filter:blur(16px);border-bottom:1px solid #1f293d}.chat-header h2{display:inline-block;margin:0 10px 12px 0}.chat-header a{display:block;font-size:11px;margin-bottom:8px}.chat-header p{font-size:10px;line-height:1.5;margin:8px 0 0}audio{width:100%;height:36px}.turn{margin:14px 18px;padding:12px 14px;border:1px solid #273449;border-radius:14px 14px 14px 3px;background:#1b283a;width:fit-content;max-width:85%;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.65;transition:box-shadow .2s,background .2s}.turn.operator{margin-left:auto;border-color:#1c594a;background:#11372e;border-radius:14px 14px 3px 14px}.turn.system{margin:16px auto;padding:6px 12px;max-width:94%;background:transparent;border:0;border-radius:6px;text-align:center;font:11px/1.6 ui-monospace,monospace;color:#78899e}.meta{display:flex;align-items:center;gap:7px;margin-bottom:7px;font:11px ui-monospace,monospace;color:#94a3b8}.system .meta{justify-content:center}.meta button{font:inherit;color:#a7bdcf;padding:3px 6px;background:#0b122055;border-color:#344155}.turn.highlight{outline:2px solid #34d399;box-shadow:0 0 24px #10b98144;background:#174c3f}.criterion{border:1px solid #263348;border-radius:12px;padding:14px;margin:12px 0;background:#101925}.criterion-head{display:flex;justify-content:space-between;align-items:start;gap:10px}.criterion p{font-size:12px;line-height:1.7;color:#b7c4d4}.criterion small{display:block;color:#64748b;margin:10px 0}.value-badge,.badge{display:inline-block;font:11px ui-monospace,monospace;padding:4px 7px;border-radius:6px;background:#273348;color:#bac8db;white-space:nowrap}.value-badge.good{background:#064e3b;color:#6ee7b7}.value-badge.bad{background:#4c202c;color:#fda4af}.value-badge.numeric{background:#173a59;color:#7dd3fc}.evidence-chip{border-radius:20px;padding:5px 9px;margin:2px;font-size:11px;color:#6ee7b7;border-color:#245747;background:#10342c}.appeal-toggle{font-size:11px;padding:6px 10px;color:#a6b6cb}.appeal-form{animation:reveal .2s ease-out;border-top:1px solid #2b394c;margin-top:12px;padding-top:4px}@keyframes reveal{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}textarea{resize:vertical;min-height:95px;width:100%;margin:10px 0}.score-summary{padding:18px;border-radius:12px;background:#102a25;border:1px solid #23584a}.score-summary.warn{background:#302817;border-color:#665124}.score-summary.bad{background:#341e29;border-color:#683043}.score-number{display:block;font-size:38px;letter-spacing:-1.5px;font-weight:700;color:#6ee7b7}.warn .score-number{color:#fcd34d}.bad .score-number{color:#fda4af}.score-number small{font-size:14px;color:#8496aa;letter-spacing:0}.score-track{height:5px;background:#ffffff13;border-radius:8px;margin-top:14px;overflow:hidden}.score-track span{display:block;height:100%;background:currentColor}.good,a{color:#6ee7b7}.bad,.error{color:#fda4af}.muted{color:#94a3b8}.editor{max-width:950px;margin:24px auto}.edit-card,.appeal-card{background:#131d2b;border:1px solid #29364a;border-radius:12px;padding:18px;margin-bottom:14px}.edit-card{display:grid;grid-template-columns:1fr 2fr 100px;gap:12px}.edit-card label{display:flex;flex-direction:column;gap:6px;font-size:12px}.wide{grid-column:1/-1}.appeal-card blockquote{border-left:3px solid #10b981;padding:12px;margin:12px 0;white-space:pre-wrap}[hidden]{display:none!important}@media(min-width:1500px){.layout{grid-template-columns:250px minmax(400px,1fr) 400px}}@media(max-width:1150px){header{flex-wrap:wrap}nav{order:3;width:100%;justify-content:center}.toolbar #evaluate{margin-left:0}.layout{grid-template-columns:180px minmax(280px,1fr) 290px;gap:10px}main{padding:0 14px 20px}}@media(max-width:850px){.layout{grid-template-columns:1fr}.panel{height:auto;max-height:65vh}#chat{height:65vh}.header-tools{flex-wrap:wrap}nav{overflow:auto;justify-content:start}nav button{font-size:12px}.edit-card{grid-template-columns:1fr}.toolbar{gap:10px}.source-section{flex-wrap:wrap}.source-section input{width:150px}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
-:root{color:#e5e7eb;background:#111827}header{background:#111827;border-bottom:1px solid #334155}header small,.muted,.meta{color:#a8b5c7}.toolbar,.panel,.edit-card{background:#1b2535;border-color:#334155}button,input,textarea,select{background:#111827;color:#f3f4f6;border-color:#475569}button:hover{background:#253649}.primary,.primary:hover{background:#00A35B;color:white}.selected{border-color:#00A35B}.turn{background:#111827}.turn.operator{background:#14392f}.good,a{color:#52e09e}.bad,.error{color:#fda4af}.criterion{border-color:#334155}progress{accent-color:#00A35B}progress::-webkit-progress-value{background:#00A35B;transition:width .7s ease}.highlight{outline:2px solid #00A35B;box-shadow:0 0 20px #00a35b55}.badge{display:inline-block;border:1px solid #00A35B;color:#65edb1;border-radius:5px;padding:3px 7px;margin:3px;font-size:12px}.appeal-card{background:#1b2535;border:1px solid #475569;border-radius:10px;padding:18px;margin-bottom:14px}.appeal-card textarea,.criterion textarea{display:block;box-sizing:border-box;width:100%;margin:10px 0}.appeal-card blockquote{margin:10px 0;padding:12px;border-left:3px solid #00A35B;white-space:pre-wrap}.metrics{display:flex;gap:16px;flex-wrap:wrap;padding:12px 0}.metric{padding:12px 18px;background:#1b2535;border-radius:8px}.role{display:flex;align-items:center;gap:6px}button:disabled{cursor:not-allowed}nav{flex-wrap:wrap}.criterion button{margin:3px}
-</style>
-<header><h1>FreeDoom</h1><small>Контроль качества диалогов</small><span class="badge">RU</span><span class="badge">KZ</span><span class="badge">EN</span><label class="role">Роль <select id="role"><option value="operator">Оператор</option><option value="supervisor">Супервизор</option></select></label><nav><button id="appealsTab">Апелляции</button><button id="analyticsTab">Диалоги</button><button id="settingsTab">Чек-лист</button></nav></header>
+/* Veritas: titanium, glass, and restrained emerald light. */
+:root{background:#090e16}header{background:linear-gradient(115deg,#131b26,#0e1520 65%);border-bottom-color:#273347}h1{font-family:Inter,system-ui,sans-serif;font-weight:650;color:#f8fafc;letter-spacing:-.7px}.brand{display:flex;align-items:center;gap:12px}.brand-mask{width:44px;height:54px;flex-shrink:0;filter:drop-shadow(0 0 9px #00a35b30)}.brand-copy{display:grid;gap:7px}.brand-line{display:flex;align-items:center;gap:10px}.team-badge{font:10px ui-monospace,monospace;letter-spacing:1.5px;padding:4px 7px;border-radius:5px;background:#202a31;border:1px solid #00a35b66;color:#b0d7c7}.brand-subtitle{font-size:10px;color:#8190a3;letter-spacing:.15px}.panel,.toolbar{box-shadow:inset 0 1px 0 #ffffff04,0 12px 35px #00000012}.dialog,.criterion{transition:all .2s ease}.dialog:hover,.criterion:hover{border-color:rgba(16,185,129,.4);box-shadow:0 0 18px #00a35b09}.dialog{display:flex;align-items:center;gap:9px}.dialog-label{flex:1;min-width:0}.score-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#64748b}.score-dot.good{background:#34d399;box-shadow:0 0 7px #34d39933}.score-dot.warn{background:#fbbf24;box-shadow:0 0 7px #fbbf2426}.score-dot.bad{background:#fb7185;box-shadow:0 0 7px #fb718526}.score-summary{position:relative;isolation:isolate;overflow:visible;background:linear-gradient(135deg,#14352d,#101f22);box-shadow:inset 0 1px 0 #ffffff0a}.score-summary:before{content:"";position:absolute;inset:-24px -15px;z-index:-1;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,163,91,.12),transparent 72%);filter:blur(12px)}.score-summary.warn{background:linear-gradient(135deg,#302817,#1d2020)}.score-summary.bad{background:linear-gradient(135deg,#341e29,#1c1b25)}.progress-shell{position:relative;display:flex;width:200px;height:6px;overflow:hidden;border-radius:8px;flex-shrink:0}.progress-shell progress{width:100%;height:100%}.running .progress-shell:after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(105deg,transparent 20%,rgba(255,255,255,.55) 50%,transparent 80%);transform:translateX(-100%);animation:shimmer 1.9s ease-in-out infinite}.running progress{animation:none}@keyframes shimmer{to{transform:translateX(100%)}}@media(min-width:1151px) and (max-width:1380px){header{gap:14px;padding:18px}nav button{font-size:12px;padding:9px}.brand-subtitle{font-size:9px}.header-tools{gap:8px}}@media(max-width:520px){header{gap:18px}.brand-subtitle{font-size:9px}.brand-mask{width:36px;height:46px}.progress-shell{width:110px}.status{align-items:flex-start}}@media(prefers-reduced-motion:reduce){.running .progress-shell:after{animation:none;display:none}}
+.meta{flex-wrap:wrap;row-gap:6px}.sent-time{display:inline-flex;align-items:center;padding:3px 6px;border:1px solid #334155;border-radius:6px;background:#ffffff03;color:#a8b5c7;white-space:nowrap}.meta .audio-time{color:#6ee7b7;border-color:#245747;background:#10342c;white-space:nowrap}
+.criterion .contribution{color:#a8c3b7;line-height:1.6;background:#10342c55;padding:8px;border-radius:6px}.guard-audit{margin:12px 0;padding:10px;border:1px solid #245747;border-radius:9px;color:#a8c3b7}.guard-audit p{font-size:11px;line-height:1.6}</style>
+<header><div class="brand"><svg class="brand-mask" viewBox="0 0 80 96" fill="none" aria-hidden="true"><defs><linearGradient id="titanium" x1="8" y1="16" x2="75" y2="77" gradientUnits="userSpaceOnUse"><stop stop-color="#54616c"/><stop offset=".22" stop-color="#edf4f7"/><stop offset=".38" stop-color="#77858e"/><stop offset=".51" stop-color="#f7fafb"/><stop offset=".61" stop-color="#56636e"/><stop offset=".85" stop-color="#bbc8cf"/><stop offset="1" stop-color="#45555e"/></linearGradient><linearGradient id="maskEdge" x1="40" y1="2" x2="40" y2="94" gradientUnits="userSpaceOnUse"><stop stop-color="#f1f5f9"/><stop offset=".45" stop-color="#8a9caa"/><stop offset="1" stop-color="#00A35B"/></linearGradient></defs><path d="M40 3 67 14 76 30 70 54 59 90 49 94 54 65H26L31 94 21 90 10 54 4 30 13 14Z" fill="url(#titanium)" stroke="url(#maskEdge)" stroke-width="1.5"/><path d="M40 4 34 31 40 40 46 31Z" fill="#e9f0f4" fill-opacity=".55"/><path d="M12 18 34 32 39 41 9 33ZM68 18 46 32 41 41 71 33Z" fill="#25313b" fill-opacity=".6"/><path d="M10 35 35 42 29 53 15 49ZM70 35 45 42 51 53 65 49Z" fill="#090f16" stroke="#98aab5"/><path d="M40 39 32 58 40 64 48 58Z" fill="url(#titanium)" stroke="#d0dce2" stroke-width=".8"/><path d="M15 53 26 61 30 86M65 53 54 61 50 86" stroke="#f2f6f9" stroke-opacity=".65" stroke-width="1.4"/><path d="M18 46 29 48M62 46 51 48" stroke="#00A35B" stroke-width="1.5"/><path d="M29 69H51" stroke="#00A35B" stroke-opacity=".6"/></svg><div class="brand-copy"><div class="brand-line"><h1>FreeDoom</h1><span class="team-badge">VERITAS</span></div><span class="brand-subtitle">CQA Intelligence Platform · Freedom Broker</span></div></div><nav aria-label="Главная навигация"><button id="analyticsTab" class="active" aria-pressed="true">Аналитика диалогов</button><button id="appealsTab" aria-pressed="false">Апелляции <span id="appealCount" class="badge">0</span></button><button id="settingsTab" aria-pressed="false">Критерии оценки</button></nav><div class="header-tools"><div class="role-switch" aria-label="Роль"><button id="operatorRole" class="active" aria-pressed="true">Оператор</button><button id="supervisorRole" aria-pressed="false">Супервизор</button></div><select id="role" hidden><option value="operator">Оператор</option><option value="supervisor">Супервизор</option></select><details class="key-control"><summary id="keyStatus">Gemini · нет ключа</summary><label>API-ключ Gemini<input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="Введите API-ключ"></label></details></div></header>
 <main>
 <div id="message" role="status" aria-live="polite"></div>
 <section id="analytics">
-<div class="toolbar">
-<label>API-ключ Gemini <input id="apiKey" type="password" value="" autocomplete="off" spellcheck="false" placeholder="Введите API-ключ"></label>
-<label>Набор <select id="group"><option>DEV</option><option>PROD</option></select></label>
-<label>group_id API <input id="sourceGroup" placeholder="По умолчанию DEV / PROD" maxlength="200"></label>
-<input type="file" id="file" accept=".json,application/json" aria-label="JSON-файл">
-<button id="upload">Загрузить файл</button><button id="get">Получить через GET</button>
-<button id="evaluate" class="primary">Оценить все</button><button id="cancel" disabled>Остановить оценку</button><button id="resume">Продолжить / повторить ошибки</button><button id="download" disabled>Скачать results.json</button>
-</div>
-<div class="status"><progress id="progress" value="0" max="1"></progress><span id="progressText">Загрузите набор</span></div>
+<div class="toolbar"><label>Набор <select id="group"><option>DEV</option><option>PROD</option></select></label><div class="source-section"><input id="sourceGroup" aria-label="group_id API" placeholder="group_id · DEV / PROD" maxlength="200"><button id="get">Получить по API</button></div><span class="separator">или</span><input type="file" id="file" accept=".json,application/json" aria-label="JSON-файл" hidden><button id="upload">↥ Загрузить JSON</button><button id="evaluate" class="primary"><span class="status-dot"></span>Запустить AI-оценку</button><div class="secondary-actions"><button id="evaluateSelected" title="Переоценить выбранный диалог и обновить экспорт">Оценить выбранный</button><button id="cancel" disabled>■ Стоп</button><button id="resume" title="Продолжить / повторить ошибки">↻ Повтор</button><button id="download" disabled title="Скачать results.json">↓ Экспорт</button></div></div>
+<div class="status"><span class="progress-shell"><progress id="progress" value="0" max="1" aria-label="Прогресс оценки"></progress></span><span id="progressText">Загрузите набор</span></div>
 <p id="connection" class="muted"></p>
 <details><summary>Проверка нескольких диалогов без изменения выгрузки</summary><input id="verifyIds" placeholder="ID через запятую"><button id="verifySample">Проверить выборку</button><pre id="verifyStatus"></pre></details>
 <div id="metrics" class="metrics"></div>
@@ -33,14 +27,15 @@
 </section>
 <section id="appeals" hidden class="editor"><h2>Центр апелляций</h2><label>Статус <select id="appealFilter"><option value="all">Все</option><option value="appeal_pending">Ожидают решения</option><option value="reviewed">Рассмотрены</option></select></label><div id="appealList"></div></section>
 <section id="settings" hidden class="editor">
-<h2>Настройка чек-листа</h2><p class="muted">После сохранения запустите оценку заново. Старый результат сам не меняется.</p>
-<div id="rules"></div><button id="add">Добавить критерий</button> <button id="save" class="primary">Сохранить чек-лист</button>
+<h2>Критерии оценки</h2><p class="muted">После сохранения запустите оценку заново. Старый результат сам не меняется.</p>
+<div id="rules"></div><button id="add">Добавить критерий</button> <button id="save" class="primary">Сохранить критерии</button>
 </section>
 </main>
 <script>
 const $=id=>document.getElementById(id);
 let snapshot=null,selected=null,rules=[],poll=null,busy=false,lastDetail="",lastAppeals="",refreshing=false;
 function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n}
+function scoreTone(value){return typeof value!=="number"||!Number.isFinite(value)?"neutral":value>80?"good":value>=60?"warn":"bad"}
 function message(text,error=false){$("message").textContent=text;$("message").className=error?"error":""}
 async function api(path,options={}){
  const r=await fetch(path,options);let body;
@@ -49,12 +44,12 @@ async function api(path,options={}){
  return body;
 }
 function post(path,body){return api(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})}
-function show(tab){for(const id of ["analytics","settings","appeals"])$(id).hidden=tab!==id}
+function show(tab){for(const id of ["analytics","settings","appeals"])$(id).hidden=tab!==id;for(const id of ["analytics","settings","appeals"]){$(id+"Tab").classList.toggle("active",tab===id);$(id+"Tab").setAttribute("aria-pressed",String(tab===id))}}
 function controls(){
- const running=busy||snapshot?.progress.running;
- for(const id of ["upload","get","evaluate","resume","save","add"])$(id).disabled=running;
- $("cancel").disabled=!snapshot?.progress.running;
- const complete=snapshot&&snapshot.records.length>0&&Object.keys(snapshot.results).length===snapshot.records.length&&!running;
+ const running=busy||snapshot?.progress.running;document.body.classList.toggle("running",!!running);$("evaluate").setAttribute("aria-busy",String(!!running));
+ for(const id of ["upload","get","evaluate","evaluateSelected","resume","save","add"])$(id).disabled=running;
+ $("evaluateSelected").disabled=running||!selected;$("cancel").disabled=!snapshot?.progress.running;
+ const complete=snapshot&&snapshot.records.length>0&&Object.keys(snapshot.results).length===snapshot.records.length&&!running&&!snapshot.stale_results;
  $("download").disabled=!complete;
 }
 async function refresh(){
@@ -67,13 +62,13 @@ async function refresh(){
  if(!snapshot.records.some(r=>r.conversation_id===selected))selected=snapshot.records[0]?.conversation_id;
  const p=snapshot.progress,done=Object.keys(snapshot.results).length;
  $("progress").max=Math.max(snapshot.records.length,1);$("progress").value=done;
- $("progressText").textContent=`Оценено ${done} / ${snapshot.records.length} · ошибок ${Object.values(snapshot.results).filter(r=>r.status==="error").length}${p.running?" · выполняется":p.cancelled?" · остановлено":""} · ${Number(p.elapsed_seconds||0).toFixed(1)} сек`;
+ $("progressText").textContent=`Оценено ${done} / ${snapshot.records.length} · ошибок ${Object.values(snapshot.results).filter(r=>r.status==="error").length}${p.running?" · выполняется":p.cancelled?" · остановлено":""} · ${Number(p.elapsed_seconds||0).toFixed(1)} сек${snapshot.stale_results?" · старый промпт: "+snapshot.stale_results:""}`;
  $("connection").textContent=`Модель: ${snapshot.model} · набор ${snapshot.group_id} · до ${snapshot.performance?.workers||1} запросов одновременно · ${snapshot.performance?.rpm||"—"} запросов/мин · thinking ${snapshot.performance?.thinking||"minimal"}${snapshot.performance?.pause_seconds?" · Пауза API: "+snapshot.performance.pause_seconds+" сек":""}`;
  $("list").replaceChildren();
  for(const r of snapshot.records){
   const result=snapshot.results[r.conversation_id];
   const score=result&&result.status!=="error"?(result.score.final_score??"N/A"):result?.status==="error"?"Ошибка":"—";
-  const b=el("button",r.conversation_id+" · "+score,"dialog"+(selected===r.conversation_id?" selected":""));
+  const b=el("button",undefined,"dialog"+(selected===r.conversation_id?" selected":"")),dot=el("span",undefined,"score-dot "+scoreTone(score));dot.setAttribute("aria-hidden","true");b.append(dot,el("span",r.conversation_id+" · "+score,"dialog-label"));
   b.onclick=()=>{selected=r.conversation_id;lastDetail="";renderDetails();refresh().catch(e=>message(e.message,true))};
   $("list").append(b);
  }
@@ -84,46 +79,111 @@ async function refresh(){
  if(p.running&&!poll)startPoll();
  if(!p.running&&!busy&&poll){clearInterval(poll);poll=null}
 }
-function jump(n){
- show("analytics");const t=$("turn-"+n);if(t){t.scrollIntoView({behavior:"smooth",block:"center"});t.classList.add("highlight");const audio=$("callAudio"),record=snapshot.records.find(r=>r.conversation_id===selected);if(audio&&record){const parts=record.transcript[n-1].timestamp.split(":").map(Number);if(parts.length>=2&&parts.every(Number.isFinite)){const seconds=parts.reduce((a,v)=>a*60+v,0);if(Number.isFinite(audio.duration))audio.currentTime=Math.min(seconds,audio.duration)}}setTimeout(()=>t.classList.remove("highlight"),2000)}
+function timestampSeconds(record,n){
+ const stamp=record.transcript[n-1]?.timestamp;
+ if(typeof stamp!=="string")return null;
+ if(/^\d+:\d{2}(?::\d{2})?(?:\.\d+)?$/.test(stamp))return stamp.split(":").map(Number).reduce((a,v)=>a*60+v,0);
+ const current=Date.parse(stamp);
+ const events=record.transcript.map(t=>({...t,at:Date.parse(t.timestamp)})).filter(t=>Number.isFinite(t.at)).sort((a,b)=>a.at-b.at);
+ if(!Number.isFinite(current)||!events.length)return null;
+ const isStart=t=>t.speaker==="system"&&(/запись.*запущен|жазу.*басталды|recording.*started/i.test(t.text));
+ const isPause=t=>t.speaker==="system"&&/запись.*приостановлен|recording.*paused/i.test(t.text);
+ const isResume=t=>t.speaker==="system"&&/запись.*возобновлен|recording.*resumed/i.test(t.text);
+ const origin=(events.find(isStart)||events[0]).at;
+ if(current<origin)return null;
+ let removed=0,pause=null;
+ for(const event of events){
+  if(event.at<origin||event.at>current)continue;
+  if(isPause(event)&&pause===null)pause=event.at;
+  else if(isResume(event)&&pause!==null){removed+=event.at-pause;pause=null}
+ }
+ // No media exists for a turn inside a declared recording pause.
+ if(pause!==null)return null;
+ return Math.max(0,(current-origin-removed)/1000);
 }
+
+function seekRecording(player,seconds){
+ player.pendingSeek=seconds;
+ const apply=()=>{
+  if(player.readyState<1)return;
+  if(Number.isFinite(player.duration)&&seconds>player.duration+1){player.pendingSeek=null;message("Метка выходит за длительность записи: исходный транскрипт требует уточнения синхронизации.",true);return false}
+  try{player.currentTime=Number.isFinite(player.duration)?Math.min(seconds,Math.max(0,player.duration-.01)):seconds;player.pendingSeek=null}catch{}
+  return true;
+ };
+ if(apply()===false)return;
+ player.play().catch(()=>message("Метка выбрана. Нажмите воспроизведение в плеере."));
+}
+function jump(n){
+ show("analytics");const t=$("turn-"+n);
+ if(!t)return;
+ t.scrollIntoView({behavior:"smooth",block:"center"});t.classList.add("highlight");
+ const player=$("callAudio"),record=snapshot.records.find(r=>r.conversation_id===selected);
+ if(player&&record){const seconds=timestampSeconds(record,n);if(seconds!==null)seekRecording(player,seconds);else message("Для этой реплики нет позиции в аудио: запись ещё не началась или была приостановлена.")}
+ setTimeout(()=>t.classList.remove("highlight"),2000);
+}
+
 function renderDetails(){
  const record=snapshot?.records.find(r=>r.conversation_id===selected);
- $("chat").replaceChildren(el("h2",record?.conversation_id||"Транскрипт"));
+ const chatHeader=el("div",undefined,"chat-header");chatHeader.append(el("h2",record?.conversation_id||"Транскрипт"));$("chat").replaceChildren(chatHeader);
  $("scores").replaceChildren(el("h2","Оценка"));
  if(!record)return;
  const lang=String(record.language||record.lang||"").toUpperCase().replace("KK","KZ");
- if(["RU","KZ","EN"].includes(lang))$("chat").append(el("span",lang,"badge"));
+ if(["RU","KZ","EN"].includes(lang))chatHeader.append(el("span",lang,"badge"));
  if(record.audio_url){
   try{const u=new URL(record.audio_url);if(["https:","http:"].includes(u.protocol)){
-   const a=el("a","Открыть запись звонка ↗");a.href=u.href;a.target="_blank";a.rel="noopener noreferrer";$("chat").append(a);const player=el("audio");player.id="callAudio";player.controls=true;player.preload="metadata";player.src=u.href;$("chat").append(player);
+   const a=el("a","Открыть запись звонка ↗");a.href=u.href;a.target="_blank";a.rel="noopener noreferrer";chatHeader.append(a);const player=el("audio");player.id="callAudio";player.controls=true;player.preload="metadata";player.src="/api/media/"+encodeURIComponent(record.conversation_id);
+   player.addEventListener("loadedmetadata",()=>{if(player.pendingSeek!==undefined&&player.pendingSeek!==null)seekRecording(player,player.pendingSeek)});
+   player.addEventListener("error",()=>message("Запись не загрузилась. Откройте исходную запись или обновите страницу.",true));
+   chatHeader.append(player,el("p","Таймкоды плеера учитывают начало и отмеченные паузы записи. Исходное время реплик сохранено.","muted"));
   }}catch{}
  }
  record.transcript.forEach((t,i)=>{
-  const div=el("div",undefined,"turn"+(t.speaker==="operator"?" operator":""));div.id="turn-"+(i+1);
-  div.append(el("span",`[${i+1}] ${t.timestamp} · ${t.speaker}`,"meta"),el("span",t.text));$("chat").append(div)
+  const div=el("div",undefined,"turn "+(["operator","system"].includes(t.speaker)?t.speaker:"client"));div.id="turn-"+(i+1);
+  const meta=el("span",undefined,"meta");
+  const seconds=record.audio_url?timestampSeconds(record,i+1):null;
+  meta.title="Исходное время: "+t.timestamp;
+  const stamp=String(t.timestamp??""),iso=stamp.match(/^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/);
+  const zone=iso?(iso[2]==="Z"||iso[2]==="+00:00"?" UTC":" UTC"+iso[2]):"";
+  const sent=el("span","Отправлено · "+(iso?iso[1]+zone:stamp||"время не указано"),"sent-time");
+  sent.title="Время отправки из транскрипта: "+(stamp||"не указано");meta.append(sent);
+  if(seconds!==null){const time=el("button",`Аудио · ${Math.floor(seconds/60)}:${String(Math.floor(seconds%60)).padStart(2,"0")}`,"audio-time");time.title="Перейти к реплике в записи";time.onclick=()=>jump(i+1);meta.append(time)}
+  meta.append(el("span",`#${i+1}`),el("span",({operator:"Оператор",client:"Клиент",bot:"Бот",system:"Система"})[t.speaker]||t.speaker));
+  div.append(meta,el("span",t.text));$("chat").append(div)
  });
  const result=snapshot.results[selected];
  if(!result){$("scores").append(el("p","Диалог ещё не оценён.","muted"));return}
  if(result.status==="error"){$("scores").append(el("p",result.error,"error"));return}
- $("scores").append(el("h2",`Итог: ${result.score.final_score??"N/A"} / 100`));
+ const total=result.score.final_score,tone=scoreTone(total);
+ const summary=el("div",undefined,"score-summary "+tone),number=el("span",total===null?"N/A":Number(total).toFixed(2),"score-number");number.append(el("small"," / 100"));summary.append(el("span","ИТОГОВАЯ ОЦЕНКА","meta"),number);const track=el("div",undefined,"score-track"),fill=el("span");fill.style.width=Math.max(0,Math.min(100,total||0))+"%";track.append(fill);summary.append(track);$("scores").append(summary);
  if(result.score.critical_flag)$("scores").append(el("p","Выявлено грубое нарушение","bad"));
+ if(result.evidence_guards?.length){
+  const audit=el("details",undefined,"guard-audit");audit.append(el("summary",`Проверка фактов · поправок: ${result.evidence_guards.length}`));
+  for(const change of result.evidence_guards){const current=result.criteria.find(c=>c.criterion_id===change.criterion_id);audit.append(el("p",`${change.criterion_id}: ${displayValue(change.original.value)} → ${displayValue(current?.value)}. ${change.reason}`))}
+  audit.append(el("small","Исходный ответ модели сохранён в журнале."));$("scores").append(audit);
+ }
  if(result.original_ai)$("scores").append(el("p",`Исходный итог ИИ: ${result.original_ai.score.final_score??"N/A"} · Финальный: ${result.score.final_score??"N/A"}`));
  if(result.status==="appeal_pending")$("scores").append(el("span","Есть апелляция","badge"));
  const names=Object.fromEntries(snapshot.run_checklist.map(c=>[c.id,c.name]));
  for(const c of result.criteria){
   const div=el("div",undefined,"criterion");
   const value=c.value===null?"N/A":c.value===true?"Да":c.value===false?"Нет":c.value;
-  div.append(el("h3",`${names[c.criterion_id]||c.criterion_id}: ${value}`),el("p",c.rationale));
-  for(const n of c.evidence_turns){const b=el("button","Реплика "+n);b.onclick=()=>jump(n);div.append(b)}
+  const ruleForBadge=snapshot.run_checklist.find(r=>r.id===c.criterion_id);const positive=ruleForBadge?.kind==="flag"?c.value===false:c.value===true;
+  const head=el("div",undefined,"criterion-head");head.append(el("h3",names[c.criterion_id]||c.criterion_id),el("span",typeof value==="number"?"Балл: "+value:value,"value-badge "+(c.value===null?"":typeof c.value==="number"?"numeric":positive?"good":"bad")));div.append(head,el("p",c.rationale));
+  for(const n of c.evidence_turns){const b=el("button","Реплика "+n,"evidence-chip");b.onclick=()=>jump(n);div.append(b)}
   const rule=snapshot.run_checklist.find(r=>r.id===c.criterion_id);
-  div.append(el("small",`Вес: ${rule?.weight??0}`));
+  const applicable=snapshot.run_checklist.filter(r=>r.kind!=="flag"&&result.criteria.find(x=>x.criterion_id===r.id)?.value!==null).reduce((sum,r)=>sum+r.weight,0);
+  let contribution="Не входит в итог: флаг нарушения";
+  if(rule&&rule.kind!=="flag"){
+   if(c.value===null)contribution=`N/A · вес ${rule.weight} исключён из расчёта`;
+   else{const earned=typeof c.value==="boolean"?(c.value?rule.weight:0):rule.weight*c.value/Math.max(...rule.allowed_values.filter(v=>v!==null));contribution=`Баллы: ${earned.toFixed(2)} / ${rule.weight} · вклад в итог: ${applicable?(100*earned/applicable).toFixed(2):"—"} / 100`}
+  }
+  div.append(el("small",contribution,"contribution"));
   const pending=(snapshot.appeals||[]).find(a=>a.conversation_id===selected&&a.criterion_id===c.criterion_id&&a.status==="appeal_pending");
   if(pending){const b=el("button","Ожидает решения →");b.onclick=()=>show("appeals");div.append(b)}
   else if($("role").value==="operator"){
-   const open=el("button","Оспорить");open.disabled=snapshot.progress.running;open.onclick=()=>{
+   const open=el("button","Оспорить","appeal-toggle");open.disabled=snapshot.progress.running;open.onclick=()=>{
     open.disabled=true;const text=el("textarea");text.placeholder="Почему оценка неверна?";text.maxLength=10000;const send=el("button","Отправить апелляцию","primary");
-    send.onclick=async()=>{if(!text.value.trim()){message("Введите жалобу.",true);return}send.disabled=true;try{await post("/api/appeal",{conversation_id:record.conversation_id,criterion_id:c.criterion_id,comment:text.value});lastDetail="";await refresh();message("Апелляция отправлена.")}catch(e){message(e.message,true);send.disabled=false}};div.append(text,send);text.focus()
+    send.onclick=async()=>{if(!text.value.trim()){message("Введите жалобу.",true);return}send.disabled=true;try{await post("/api/appeal",{conversation_id:record.conversation_id,criterion_id:c.criterion_id,comment:text.value});lastDetail="";await refresh();message("Апелляция отправлена.")}catch(e){message(e.message,true);send.disabled=false}};const form=el("div",undefined,"appeal-form"),close=el("button","Отмена");close.onclick=()=>{form.remove();open.disabled=false};form.append(text,send,close);div.append(form);text.focus()
    };div.append(open)
   }
   $("scores").append(div);
@@ -165,17 +225,18 @@ async function load(file){
   selected=null;lastDetail="";await refresh();message("Загружено диалогов: "+result.count);
  }catch(e){message(e.message,true)}finally{busy=false;controls()}
 }
-$("upload").onclick=()=>load(true);$("get").onclick=()=>load(false);
-async function startEvaluation(resume=false){
+$("upload").onclick=()=>$("file").click();$("file").onchange=async()=>{if($("file").files.length)await load(true);$("file").value=""};$("get").onclick=()=>load(false);
+async function startEvaluation(resume=false,conversation_id=null){
  const key=$("apiKey").value.trim();
  if(!key){message("Введите API-ключ Gemini.",true);return}
  busy=true;controls();message("Запуск оценки…");
- try{await post("/api/evaluate",{api_key:key,resume});await refresh();startPoll();message("Оценка запущена в фоне.")}
+ try{await post("/api/evaluate",{api_key:key,resume,...(conversation_id?{conversation_id}:{})});await refresh();startPoll();message("Оценка запущена в фоне.")}
  catch(e){message(e.message,true)}
  finally{busy=false;controls()}
 };
 $("cancel").onclick=async()=>{ $("cancel").disabled=true;try{await post("/api/evaluate/cancel",{});await refresh();message("Оценка остановлена. Можно продолжить с оставшихся диалогов.")}catch(e){message(e.message,true);controls()}};
 $("evaluate").onclick=()=>startEvaluation(false);
+$("evaluateSelected").onclick=()=>{if(selected)startEvaluation(false,selected)};
 $("resume").onclick=()=>startEvaluation(true);
 $("download").onclick=()=>{
  const blob=new Blob([JSON.stringify(snapshot.export,null,2)],{type:"application/json;charset=utf-8"});
@@ -191,6 +252,7 @@ $("verifySample").onclick=async()=>{
 };
 const displayValue=v=>v===null?"N/A":v===true?"Да":v===false?"Нет":String(v);
 function renderMetrics(){
+ $("appealCount").textContent=(snapshot.appeals||[]).filter(a=>a.status==="appeal_pending").length;
  const ok=Object.values(snapshot.results).filter(r=>r.status!=="error"&&r.score?.final_score!==null);
  const avg=ok.length?(ok.reduce((sum,r)=>sum+r.score.final_score,0)/ok.length).toFixed(1):"—";
  $("metrics").replaceChildren(el("div",`Средняя оценка: ${avg}`,"metric"),el("div",`Апелляций на рассмотрении: ${(snapshot.appeals||[]).filter(a=>a.status==="appeal_pending").length}`,"metric"));
@@ -217,10 +279,12 @@ function renderAppeals(){
  }
 }
 $("appealsTab").onclick=()=>show("appeals");
-$("role").onchange=()=>{lastDetail="";renderDetails();renderAppeals()};
+for(const role of ["operator","supervisor"])$(role+"Role").onclick=()=>{$("role").value=role;$("role").onchange()};
+$("role").onchange=()=>{for(const role of ["operator","supervisor"]){$(role+"Role").classList.toggle("active",$("role").value===role);$(role+"Role").setAttribute("aria-pressed",String($("role").value===role))}lastDetail="";renderDetails();renderAppeals()};
 $("appealFilter").onchange=()=>renderAppeals();
 try{$("apiKey").value=localStorage.getItem("gemini_api_key")||""}catch{}
-$("apiKey").addEventListener("input",()=>{try{localStorage.setItem("gemini_api_key",$("apiKey").value)}catch{message("Браузер запретил сохранение ключа.",true)}});
+function keyStatus(){const ready=!!$("apiKey").value.trim();$("keyStatus").textContent=ready?"Gemini · ключ введён":"Gemini · нет ключа";$("keyStatus").classList.toggle("key-ready",ready)}keyStatus();
+$("apiKey").addEventListener("input",()=>{keyStatus();try{localStorage.setItem("gemini_api_key",$("apiKey").value)}catch{message("Браузер запретил сохранение ключа.",true)}});
 
 (async()=>{try{rules=(await post("/api/checklist",{})).checklist;renderRules();await refresh()}catch(e){message(e.message,true)}})();
 </script>

@@ -6,6 +6,9 @@ import math
 import re
 import time
 import random
+import hashlib
+from html.parser import HTMLParser
+from urllib.parse import urljoin
 from collections import deque
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -21,11 +24,11 @@ ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 DATA.mkdir(exist_ok=True)
 MODEL = "gemini-3.5-flash-lite"
-EVALUATOR_VERSION = "2026-11-08-balanced-v4"
+EVALUATOR_VERSION = "2026-11-08-grounded-v8"
 CONFIG_PATH = DATA / "config.json"
 CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8")) if CONFIG_PATH.exists() else {}
 ORGANIZER_API_URL = CONFIG.get("organizer_api_url", "")
-TEAM = "FreeDoom"
+TEAM = "Veritas"
 app = FastAPI(title="FreeDoom", docs_url=None, redoc_url=None, openapi_url=None)
 lock = asyncio.Lock()
 
@@ -208,7 +211,7 @@ def archive_run():
 
 
 def export_payload():
-    return {"schema_version": "1.0", "team_name": state["team_name"],
+    return {"schema_version": "1.0", "team_name": TEAM,
             "model": {"mode": "external_api", "name": state["model"]},
             "results": [export_result(state["results"][r["conversation_id"]]) for r in state["records"]
                         if r["conversation_id"] in state["results"]]}
@@ -216,7 +219,11 @@ def export_payload():
 
 def persist():
     save(DATA / "state.json", state)
-    if state["results"]:
+    complete = bool(state["records"]) and all(
+        (result := state["results"].get(record["conversation_id"]))
+        and result["status"] != "error" and result.get("evaluator_version") == EVALUATOR_VERSION
+        for record in state["records"])
+    if complete:
         save(ROOT / "results" / state["group"].lower() / "results.json", export_payload())
 
 
@@ -227,10 +234,28 @@ SYSTEM = """Оцени только работу человека speaker=operat
 Её номер явно передан. Приветствие бота не заменяет и не отменяет приветствие оператора.
 Правила переданного чек-листа приоритетны. Для стандартных критериев:
 contact: приветствие на языке клиента И представление в первом ответе оператора.
-discovery: сначала проверь N/A — если исходных данных хватало, null, а не true.
-Если данных не хватало, true только когда оператор учёл известное и уточнил недостающее
-ДО ответа. Самостоятельное уточнение клиента не является вопросом оператора.
-Повторный вопрос о уже известном не засчитывай как выявление потребности.
+Плейсхолдеры [Имя скрыто], [name hidden], [имя] в позиции собственного имени
+оператора считаются представлением: анонимизация не означает отсутствие имени.
+Не путай скрытое имя клиента с представлением оператора.
+discovery: выбери по дереву решений для ВСЕГО обращения, включая новые вопросы:
+1) Для решения требовались неизвестные существенные детали (валюта, время перевода,
+источник сравнения, суть проблемы)? Если ДА, null ЗАПРЕЩЁН.
+2) Оператор учёл известное и выяснил эти детали до соответствующего ответа/действия?
+Да -> true; нет -> false. Если выяснял уже после преждевременного решения,
+проверь порядок событий, не награждай за запоздалое уточнение.
+3) null ТОЛЬКО если существенных недостающих данных не было с самого начала.
+Проверка личности и формальное «ещё вопросы?» сами по себе не выявление потребности.
+Необходимый вопрос о валюте/времени/источнике сравнения исключает null.
+В rationale для null нельзя писать «данных не хватало» или «требовалось уточнение».
+Учитывай сведения клиента ДО подключения оператора: они уже известны оператору.
+Не выдумывай недостающие детали. Для общей навигации по меню валюта/параметры счёта не нужны: клиент выбирает их в интерфейсе. Не требуй уточнять валюту перед объяснением, где скачать реквизиты. Если клиент указал «с ноутбука», получил путь
+в веб-версии и подтвердил «нашла», не требуй повторно уточнять платформу: null.
+Если оператор спросил источник сравнения тарифов, получил ответ и затем объяснил
+разницу дат/предложил проверку, это true; нельзя ставить false без конкретной
+существенной детали, необходимой именно для следующего ответа, а не гипотетической.
+Запрос валюты перед передачей дела на проверку — true, не null.
+Самостоятельное уточнение клиента не является вопросом оператора.
+Повторный вопрос об уже известном не засчитывай как выявление потребности.
 identification: null для общего вопроса без защищённого действия; true лишь при
 подтверждённой проверке до доступа/раскрытия; обещание проверить не равно проверке.
 consultation: null если чат закончился до формулировки запроса. Не ставь 0 за такой обрыв.
@@ -238,6 +263,14 @@ consultation: null если чат закончился до формулиро�
 closure: null если клиент оборвал разговор до возможности завершить; false если
 возможность была, но требуемого завершения нет. Одного прощания недостаточно:
 нужны также итог ИЛИ предложение дальнейшей помощи, если так требует чек-лист.
+Если система фиксирует отключение клиента ДО окончания реплики оператора,
+и оператор ещё завершает разговор/уточняет вопросы, это обрыв до возможности
+завершить: closure=null, а НЕ false. Сопоставляй последние реплики и system.
+Само «клиент завершил разговор» после нормального прощания не делает критерий N/A.
+Обычная инструкция в середине консультации НЕ является подведением итога в конце.
+«Пожалуйста. Хорошего вечера», «Жақсы. Күніңіз сәтті өтсін»,
+«You're welcome. Have a good day» — только вежливость/прощание, closure=false,
+если других компонентов завершения нет. «Клиент сказал: получилось» не итог оператора.
 critical: отдельно проверь оскорбление, обход компании, раскрытие конфиденциального.
 Не оправдывай нарушение тем, что вопрос в итоге решён. Флаг не обнуляет балл.
 Для изменённых критериев применяй их rule_text, а не стандартную трактовку выше.
@@ -258,6 +291,11 @@ r: одно законченное предложение с конкретно�
 прощание/вежливость. «Путь я указал. Хорошего дня» не итог решённого вопроса,
 если клиент всё ещё спрашивал о сроках: closure=false.
 3. Не пиши «предложил помощь», если нет слов с предложением помощи в реплике.
+4. Сверь каждое v с r: «не успел из-за обрыва» -> closure=null;
+«существенных данных не хватало» -> discovery не null;
+для contact учитывай анонимизированное имя. Для closure=true e должны подтверждать
+И итог/предложение помощи в завершении, И прощание именно оператора.
+Не дописывай в rationale действие, которого нет в цитируемых репликах.
 Все критерии одним ответом. Не рассчитывай итог, не добавляй Markdown."""
 
 
@@ -270,8 +308,9 @@ def response_schema(rules, turn_count):
         if None in values:
             value_schema = {"anyOf": [value_schema, {"type": "null"}]}
         properties[rule["id"]] = {"type": "object", "properties": {
-            "v": value_schema, "r": {"type": "string", "description": "Одно законченное конкретное предложение, обычно 8–18 слов; без воды"},
-            "e": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": turn_count}, "minItems": 1, "maxItems": 3}},
+            "e": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": turn_count}, "minItems": 1, "maxItems": 3},
+            "r": {"type": "string", "description": "Сначала установи факты по e. Одно конкретное предложение, обычно 8–18 слов; не приписывай отсутствующие действия."},
+            "v": {**value_schema, "description": rule["rule_text"]}},
             "required": ["v", "r", "e"], "additionalProperties": False}
     return {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
 
@@ -291,12 +330,26 @@ def decode_answer(answer, rules, count):
 
 
 
+class DailyQuotaExceeded(Exception):
+    pass
+
+
+def is_daily_quota(response):
+    try:
+        return any("PerDay" in v.get("quotaId", "")
+                   for d in response.json().get("error", {}).get("details", [])
+                   for v in d.get("violations", []))
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 class RequestLimiter:
     """Shared request budget across workers and runs."""
     def __init__(self, rpm=14, tpm=2000000, history_path=None):
         self.rpm, self.tpm = rpm, tpm
         self.events = deque()
         self.until = 0.0
+        self.daily_until = 0.0
         self.next_start = 0.0
         self.history_path = history_path
         if history_path is not None:
@@ -305,6 +358,7 @@ class RequestLimiter:
             if history.get("model") == MODEL:
                 self.events = deque((now - max(0, wall - at), tokens) for at, tokens in history.get("events", []) if wall - at < 60)
                 self.until = now + max(0, history.get("until", 0) - wall)
+                self.daily_until = now + max(0, history.get("daily_until", 0) - wall)
                 self.next_start = now + max(0, history.get("next_start", 0) - wall)
         self.lock = asyncio.Lock()
 
@@ -313,6 +367,7 @@ class RequestLimiter:
             now, wall = time.monotonic(), time.time()
             save(self.history_path, {"model": MODEL, "events": [[wall - (now-at), n] for at,n in self.events],
                                      "until": wall + max(0, self.until-now),
+                                     "daily_until": wall + max(0, self.daily_until-now),
                                      "next_start": wall + max(0, self.next_start-now)})
 
     async def acquire(self, tokens):
@@ -359,9 +414,11 @@ class RequestLimiter:
                 config = read(CONFIG_PATH, {})
                 config.setdefault("model_rate_limits", {})[MODEL] = {"rpm": learned_rpm}
                 save(CONFIG_PATH, config)
-            elif time.monotonic() >= self.until:
+            elif not is_daily_quota(response) and time.monotonic() >= self.until:
                 self.rpm = max(1, self.rpm // 2)
             self.until = max(self.until, time.monotonic() + delay + random.uniform(.5, 2))
+            if is_daily_quota(response):
+                self.daily_until = self.until
             progress["rate_limit_hits"] = progress.get("rate_limit_hits", 0) + 1
             self.persist_history()
 
@@ -374,12 +431,66 @@ run_started = None
 WORKERS = 5
 
 
+def apply_evidence_guards(criteria, record, rules):
+    """Conservative standard-rule guards; no conversation IDs or target scores."""
+    transcript = record["transcript"]
+    standard = {r["id"]: r for r in DEFAULT_CHECKLIST}
+    active = {r["id"]: r for r in rules}
+    by_id = {c["criterion_id"]: c for c in criteria}
+    changes = []
+    def update(cid, value, rationale, evidence):
+        if active.get(cid) != standard.get(cid) or cid not in by_id:
+            return
+        c = by_id[cid]
+        if same(c["value"], value):
+            return
+        changes.append({"criterion_id": cid, "original": copy.deepcopy(c), "reason": rationale})
+        c.update(value=value, rationale=rationale, evidence_turns=evidence)
+    operators = [(i,t) for i,t in enumerate(transcript,1) if t["speaker"] == "operator"]
+    if operators:
+        i, first = operators[0]
+        text = first["text"]
+        # A redacted first-person introduction remains an introduction.
+        masked = re.search(r"\[(?:имя скрыто|name hidden|имя)\]", text, re.I)
+        language = str(record.get("language", "")).lower().split("-")[0]
+        greeting_pattern = {"ru": r"здравств|добрый (?:день|вечер)|доброе утро", "en": r"hello|\bhi\b", "kz": r"сәлем", "kk": r"сәлем"}.get(language)
+        greeting = re.search(greeting_pattern,text,re.I) if greeting_pattern else None
+        personal = re.search(r"(?:ваш[еа]?|клиента|your|customer)\s*(?:имя)?\s*\[",text,re.I)
+        if masked and greeting and not personal:
+            update("contact",True,"Оператор поздоровался и представился; имя в первой реплике скрыто анонимизацией.",[i])
+        # Narrow navigation case: the client asks WHERE to find/download a document,
+        # and the operator only gives UI steps, without requesting missing details.
+        clients = [t["text"] for t in transcript if t["speaker"] == "client"]
+        op_text = " ".join(t["text"] for _,t in operators)
+        navigation = clients and re.search(r"где|қайда|\bwhere\b",clients[0],re.I) and re.search(r"реквизит|деректеме|отч[её]т|выписк|тариф|report|statement|details",clients[0],re.I)
+        ui_steps = re.search(r"меню|menu|вкладк|раздел|кабинет|download|жүкт|reports",op_text,re.I)
+        asks_details = re.search(r"\?|уточнит|подскажит|скажите|сообщите|айтыңыз|нақтыла|tell me|could you|can you|what currency",op_text,re.I)
+        unresolved = re.search(r"почему|не получилось|не работает|не поступ|неге|істемейді|why|didn.t work|hasn.t", " ".join(clients),re.I)
+        if navigation and ui_steps and not asks_details and not unresolved:
+            update("discovery",None,"Клиент запросил путь в интерфейсе; для инструкции дополнительных сведений не требовалось.",[operators[0][0]])
+        disconnects = [(i,t) for i,t in enumerate(transcript,1) if t["speaker"] == "system" and re.search(r"клиент завершил разговор|client (?:ended|disconnected)|customer (?:ended|disconnected)",t["text"],re.I)]
+        if disconnects:
+            n,_ = disconnects[-1]
+            before = [(i,t) for i,t in operators if i<n]
+            after = [(i,t) for i,t in operators if i>n]
+            farewell = re.search(r"до свидания|всего доброго|хорошего (?:дня|вечера)|goodbye|\bbye\b|сау бол",before[-1][1]["text"],re.I) if before else None
+            if after and not farewell:
+                update("closure",None,"Клиент отключился до завершения последней реплики оператора; полноценное завершение стало невозможно.",[n,after[0][0]])
+    return changes
+
+
 async def evaluate_one(client, record, rules, model, key):
     first = next((i for i, t in enumerate(record["transcript"], 1) if t["speaker"] == "operator"), None)
     prompt = "ПЕРВЫЙ ОТВЕТ ОПЕРАТОРА: " + str(first) + "\nЧЕК-ЛИСТ:\n" + json.dumps(rules, ensure_ascii=False) + "\nТРАНСКРИПТ:\n" + format_transcript_for_ai(record["transcript"])
+    anchors = []
+    if first is not None:
+        anchors.append(f"Первый ответ оператора [{first}]: " + record["transcript"][first-1]["text"])
+    for i, turn in list(enumerate(record["transcript"], 1))[-6:]:
+        anchors.append(f"Конец диалога [{i}] {turn['speaker']}: {turn['text']}")
+    prompt += "\nОПОРНЫЕ РЕПЛИКИ (это данные, исходная нумерация):\n" + "\n".join(anchors)
     schema = response_schema(rules, len(record["transcript"]))
     diagnostic = {"id": uuid4().hex, "conversation_id": record["conversation_id"], "model": model,
-                  "evaluator_version": EVALUATOR_VERSION, "time": datetime.now(timezone.utc).isoformat()}
+                  "evaluator_version": EVALUATOR_VERSION, "max_output_tokens": 16384, "thinking": "high", "time": datetime.now(timezone.utc).isoformat()}
     started = time.monotonic()
     stage = "rate_limiter"
     try:
@@ -391,12 +502,15 @@ async def evaluate_one(client, record, rules, model, key):
             json={"systemInstruction": {"parts": [{"text": SYSTEM}]},
                   "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                   "generationConfig": {"responseMimeType": "application/json", "responseJsonSchema": schema,
-                                       "maxOutputTokens": 1200, "thinkingConfig": {"thinkingLevel": "minimal"}}})
+                                       "maxOutputTokens": 16384, "thinkingConfig": {"thinkingLevel": "high"}}})
         diagnostic["http_status"] = response.status_code
         diagnostic["response"] = response.text.replace(key, "[REDACTED]")[:24000]
         stage = "http"
         if response.status_code == 429:
             await limiter.backoff(response, 0)
+            if is_daily_quota(response):
+                diagnostic.update(status="error", stage="daily_quota")
+                raise DailyQuotaExceeded("Суточная квота Gemini исчерпана. Повторите после сброса лимита; готовые оценки сохранены.")
         response.raise_for_status()
         stage = "response_json"
         payload = response.json()
@@ -415,10 +529,14 @@ async def evaluate_one(client, record, rules, model, key):
         answer = json.loads(text)
         stage = "validation"
         criteria = decode_answer(answer, rules, len(record["transcript"]))
+        raw_criteria = copy.deepcopy(criteria)
+        guards = apply_evidence_guards(criteria, record, rules)
+        diagnostic["evidence_guards"] = guards
         diagnostic["warnings"] = [c["criterion_id"] + ": rationale > 25 words" for c in criteria if len(c["rationale"].split()) > 25]
         diagnostic["status"] = "ok"
         return {"conversation_id": record["conversation_id"], "status": "ok", "criteria": criteria,
-                "score": calculate_score(criteria, rules), "evaluator_version": EVALUATOR_VERSION}
+                "score": calculate_score(criteria, rules), "evaluator_version": EVALUATOR_VERSION,
+                "raw_model_criteria": raw_criteria, "evidence_guards": guards}
     except (ValueError, KeyError, IndexError, TypeError, httpx.HTTPError) as exc:
         detail = (str(exc) if not isinstance(exc, httpx.HTTPError) else type(exc).__name__).replace(key, "[REDACTED]")[:500]
         diagnostic.update(status="error", stage=stage, exception=type(exc).__name__, detail=detail)
@@ -432,6 +550,108 @@ async def evaluate_one(client, record, rules, model, key):
 @app.get("/")
 async def index():
     return FileResponse(ROOT / "static" / "index.html")
+
+
+class MediaSourceParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.sources = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag in ("source", "audio", "video") and attrs.get("src"):
+            self.sources.append(attrs["src"])
+
+
+media_locks = {}
+
+
+def allowed_media_url(url):
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and not parsed.username and parsed.port in (None, 443) and (
+        host == "freedomholdingcorporation.crm11.dynamics.com" or
+        host == (urlsplit(ORGANIZER_API_URL).hostname or "").lower())
+
+
+async def fetch_media_source(client, url):
+    # Redirects are checked individually; user datasets cannot turn this into an arbitrary proxy.
+    for _ in range(5):
+        if not allowed_media_url(url):
+            raise HTTPException(400, "Недопустимый адрес записи организаторов.")
+        response = await client.send(client.build_request("GET", url), stream=True)
+        if response.is_redirect:
+            location = response.headers.get("location")
+            await response.aclose()
+            if not location:
+                raise HTTPException(502, "Пустое перенаправление записи.")
+            url = urljoin(url, location)
+            continue
+        return response
+    raise HTTPException(502, "Слишком много перенаправлений записи.")
+
+
+@app.get("/api/media/{conversation_id}")
+async def call_media(conversation_id: str):
+    record = next((r for r in state["records"] if r["conversation_id"] == conversation_id), None)
+    if not record or not record.get("audio_url"):
+        raise HTTPException(404, "Запись звонка не найдена.")
+    url = record["audio_url"]
+    cache_id = hashlib.sha256(url.encode()).hexdigest()
+    path = DATA / "media" / (cache_id + ".bin")
+    metadata_path = path.with_suffix(".json")
+    async with media_locks.setdefault(cache_id, asyncio.Lock()):
+        if not path.exists() or not metadata_path.exists():
+            temp = path.with_suffix(".part")
+            try:
+                async with httpx.AsyncClient(timeout=60, follow_redirects=False) as client:
+                    response = await fetch_media_source(client, url)
+                    content_type = response.headers.get("content-type", "").split(";")[0].lower()
+                    try:
+                        response.raise_for_status()
+                        if content_type == "text/html":
+                            chunks = bytearray()
+                            async for chunk in response.aiter_bytes():
+                                chunks.extend(chunk)
+                                if len(chunks) > 1000000:
+                                    raise HTTPException(502, "Страница записи слишком большая.")
+                            parser = MediaSourceParser()
+                            parser.feed(chunks.decode("utf-8"))
+                            if not parser.sources:
+                                raise HTTPException(502, "На странице отсутствует аудио/видео источник.")
+                            source = urljoin(str(response.url), parser.sources[0])
+                        else:
+                            source = None
+                    finally:
+                        if content_type == "text/html" or response.is_error:
+                            await response.aclose()
+                    if source is not None:
+                        response = await fetch_media_source(client, source)
+                    try:
+                        response.raise_for_status()
+                        mime = response.headers.get("content-type", "").split(";")[0].lower()
+                        if not mime.startswith(("audio/", "video/")):
+                            raise HTTPException(502, "Источник не вернул медиафайл.")
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        size = 0
+                        with temp.open("wb") as output:
+                            async for chunk in response.aiter_bytes():
+                                size += len(chunk)
+                                if size > 100 * 1024 * 1024:
+                                    raise HTTPException(502, "Запись превышает 100 МБ.")
+                                output.write(chunk)
+                        if not size:
+                            raise HTTPException(502, "Получена пустая запись.")
+                        temp.replace(path)
+                        save(metadata_path, {"mime": mime})
+                    finally:
+                        await response.aclose()
+            except httpx.HTTPError:
+                raise HTTPException(502, "Не удалось загрузить запись организаторов. Повторите позже.")
+            finally:
+                temp.unlink(missing_ok=True)
+    # FileResponse implements byte ranges, so browser seeking works against the local cache.
+    return FileResponse(path, media_type=read(metadata_path, {})["mime"], headers={"Cache-Control": "private, max-age=3600"})
 
 
 @app.post("/api/load-data")
@@ -495,9 +715,11 @@ async def dialogues():
     return {"group_id": state["group"], "records": state["records"],
             "results": state["results"], "progress": progress,
             "export": export_payload(), "model": MODEL,
+            "stale_results": sum(r.get("evaluator_version") != EVALUATOR_VERSION for r in state["results"].values()),
             "run_checklist": state["run_checklist"], "appeals": state["appeals"],
-            "performance": {"workers": WORKERS, "rpm": limiter.rpm, "thinking": "minimal",
-                            "pause_seconds": max(0, round(limiter.until - time.monotonic()))}}
+            "performance": {"workers": WORKERS, "rpm": limiter.rpm, "thinking": "high",
+                            "pause_seconds": max(0, round(limiter.until - time.monotonic())),
+                            "daily_quota_wait_seconds": max(0, round(limiter.daily_until - time.monotonic()))}}
 
 
 @app.post("/api/checklist")
@@ -529,23 +751,38 @@ async def evaluate(request: Request, background_tasks: BackgroundTasks):
     async with lock:
         if progress["running"] or verification["running"]:
             raise HTTPException(409, "Оценка уже выполняется.")
+        if limiter.daily_until > time.monotonic():
+            raise HTTPException(429, f"Суточная квота Gemini исчерпана. До сброса примерно {int((limiter.daily_until-time.monotonic())/60)+1} мин.")
         if not state["records"]:
             raise HTTPException(400, "Сначала загрузите диалоги.")
         rules = copy.deepcopy(validate_checklist(checklist))
         resume = body.get("resume") is True
+        target = body.get("conversation_id")
+        if target is not None and (not isinstance(target, str) or not any(r["conversation_id"] == target for r in state["records"])):
+            raise HTTPException(400, "Неизвестный ID диалога.")
+        if target is not None and resume:
+            raise HTTPException(400, "Одиночная оценка не совмещается с продолжением.")
+        if target is not None and state["results"] and (state["run_checklist"] != rules or state["model"] != MODEL):
+            raise HTTPException(409, "Чек-лист или модель изменились. Сначала выполните полную оценку.")
         if resume and (state["run_checklist"] != rules or state["model"] != MODEL or state.get("evaluator_version") != EVALUATOR_VERSION):
             raise HTTPException(409, "Модель, промпт или чек-лист изменились. Запустите полную оценку.")
-        if resume:
+        if target is not None:
+            state.setdefault("single_history", []).append(copy.deepcopy({
+                "conversation_id": target, "time": datetime.now(timezone.utc).isoformat(),
+                "result": state["results"].get(target),
+                "appeals": [a for a in state["appeals"] if a["conversation_id"] == target]}))
+            if not state["results"]:
+                state.update(run_checklist=rules, model=MODEL, evaluator_version=EVALUATOR_VERSION)
+        elif resume:
             state["results"] = {cid: r for cid, r in state["results"].items() if r["status"] != "error"}
         else:
             archive_run()
             state.update(results={}, run_checklist=rules, model=MODEL, team_name=TEAM, evaluator_version=EVALUATOR_VERSION)
-        pending = [r for r in state["records"] if r["conversation_id"] not in state["results"]]
+        pending = [r for r in state["records"] if r["conversation_id"] == target] if target is not None else [r for r in state["records"] if r["conversation_id"] not in state["results"]]
         progress.update(running=True, done=len(state["results"]), total=len(state["records"]), errors=0, error=None, rate_limit_hits=0, cancelled=False, elapsed_seconds=0,
-                        run_total=len(pending), completed_this_run=0)
+                        run_total=len(pending), completed_this_run=0, model=MODEL, evaluator_version=EVALUATOR_VERSION, finished_at=None)
         run_started = time.monotonic()
         try:
-            save(ROOT / "results" / state["group"].lower() / "results.json", export_payload())
             persist()
         except Exception:
             progress["running"] = False
@@ -588,6 +825,8 @@ async def evaluate_background(key, rules, records):
                 if fatal:
                     raise HTTPException(502, fatal)
                 result = await evaluate_one(client, record, rules, MODEL, key)
+            except DailyQuotaExceeded:
+                raise
             except HTTPException as e:
                 fatal = str(e.detail)
                 result = {"conversation_id": record["conversation_id"], "status": "error",
@@ -599,7 +838,11 @@ async def evaluate_background(key, rules, records):
                 result["original_ai"] = copy.deepcopy({"criteria": result["criteria"], "score": result["score"]})
             # No await between state mutation and atomic writes: workers cannot interleave them.
             state["results"][record["conversation_id"]] = result
-            progress["done"] += 1
+            if result["status"] == "ok":
+                state["appeals"] = [a for a in state["appeals"] if a["conversation_id"] != record["conversation_id"]]
+            progress["done"] = len(state["results"])
+            if all(r.get("evaluator_version") == EVALUATOR_VERSION for r in state["results"].values()):
+                state["evaluator_version"] = EVALUATOR_VERSION
             progress["completed_this_run"] = progress.get("completed_this_run", 0) + 1
             progress["errors"] += int(result["status"] == "error")
             persist()
@@ -614,6 +857,9 @@ async def evaluate_background(key, rules, records):
                     if not task.done():
                         task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
+    except DailyQuotaExceeded as exc:
+        progress["error"] = str(exc)
+        progress["cancelled"] = True
     except asyncio.CancelledError:
         progress["cancelled"] = True
     except Exception:
@@ -719,6 +965,8 @@ async def verify_sample(request: Request, background_tasks: BackgroundTasks):
     ids = body.get("ids")
     if not isinstance(ids, list) or not 1 <= len(ids) <= 10 or any(not isinstance(i, str) for i in ids):
         raise HTTPException(400, "Укажите 1–10 ID диалогов.")
+    if limiter.daily_until > time.monotonic():
+        raise HTTPException(429, "Суточная квота Gemini исчерпана. Дождитесь сброса лимита.")
     records = [copy.deepcopy(r) for r in state["records"] if r["conversation_id"] in ids]
     if len(records) != len(set(ids)):
         raise HTTPException(400, "Неизвестный ID диалога.")
